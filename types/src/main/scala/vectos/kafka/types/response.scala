@@ -22,8 +22,8 @@ object KafkaResponse {
     (("brokers" | kafkaArray(brokers)) :: ("metadata" | kafkaArray(metadata))).as[Metadata]
 }
 
-case class ResponseEnvelope(correlationId: Int, response: ByteVector)
+case class ResponseEnvelope(correlationId: Int, response: BitVector)
 
 object ResponseEnvelope {
-  implicit val codec = (("correlationId" | int32) :: ("response" | bytes)).as[ResponseEnvelope]
+  implicit val codec = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
 }

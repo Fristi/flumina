@@ -1,7 +1,7 @@
 package vectos.kafka.types
 
 import scodec._
-import scodec.bits.ByteVector
+import scodec.bits.BitVector
 import scodec.codecs._
 
 sealed trait KafkaRequest
@@ -22,7 +22,7 @@ object KafkaRequest {
     ("topics" | kafkaArray(kafkaString)).as[Metadata]
 }
 
-case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: String, request: ByteVector)
+case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: String, request: BitVector)
 
 object RequestEnvelope {
   implicit val codec = (
@@ -30,7 +30,7 @@ object RequestEnvelope {
       ("apiVersion" | int16) ::
       ("correlationId" | int32) ::
       ("clientId" | kafkaString) ::
-      ("request" | bytes)
+      ("request" | scodec.codecs.bits)
     ).as[RequestEnvelope]
 }
 

@@ -89,8 +89,7 @@ object Message {
       key <- kafkaArray(byte).encode(value.key)
       value <- kafkaArray(byte).encode(value.value)
       payload = magicByte ++ attributes ++ key ++ value
-      checksum = crc.crc32(payload)
-    } yield checksum ++ payload
+    } yield crc.crc32(payload) ++ payload
 
     override def sizeBound: SizeBound = SizeBound.unknown
 

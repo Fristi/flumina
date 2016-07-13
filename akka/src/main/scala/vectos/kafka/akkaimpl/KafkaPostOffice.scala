@@ -31,7 +31,7 @@ class KafkaPostOffice extends GraphStage[BidiShape[(Int, KafkaRequest), RequestE
             fail(o1, new Exception(err.messageWithContext))
           case Attempt.Successful((apiKey, requestPayload, decoder)) =>
             correlationIdsInFlight += correlationId -> decoder
-            push(o1, RequestEnvelope(apiKey, 1, correlationId, "scala-kafka", requestPayload.toByteVector))
+            push(o1, RequestEnvelope(apiKey, 1, correlationId, "scala-kafka", requestPayload))
         }
       }
     })
@@ -41,7 +41,7 @@ class KafkaPostOffice extends GraphStage[BidiShape[(Int, KafkaRequest), RequestE
         val envelope = grab(i2)
         val response = for {
           decoder <- Attempt.fromOption(correlationIdsInFlight.get(envelope.correlationId), Err(s"No handler associated with ${envelope.correlationId}"))
-          response <- decoder(envelope.response.toBitVector)
+          response <- decoder(envelope.response)
         } yield response
 
         response match {

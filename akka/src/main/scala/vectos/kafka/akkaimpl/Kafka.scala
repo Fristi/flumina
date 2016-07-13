@@ -20,7 +20,9 @@ object Kafka {
   def produceSlidingFlow(buffer: Int = 100, parallelism: Int = 20)
                         (implicit ctx: Context) = {
     Flow[(TopicPartition, (Array[Byte], Array[Byte]))]
+      .groupBy(maxSubstreams = 100, { case (tp, _) => tp } )
       .sliding(buffer)
+      .mergeSubstreams
       .mapAsync(parallelism)(s =>
         produce(s.foldLeft(Map.empty[TopicPartition, List[(Array[Byte], Array[Byte])]]) { case (acc, (tp, keyValue)) =>
           acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
@@ -31,9 +33,11 @@ object Kafka {
   def produceBatchFlow(buffer: Int = 100, parallelism: Int = 10)
                       (implicit ctx: Context) = {
     Flow[(TopicPartition, (Array[Byte], Array[Byte]))]
+      .groupBy(100, { case (tp, _) => tp } )
       .batch(buffer, { case (tp, keyValue) => Map(tp -> List(keyValue)) }) { case (acc, (tp, keyValue)) =>
         acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
       }
+      .mergeSubstreams
       .mapAsync(parallelism)(produce)
   }
 
