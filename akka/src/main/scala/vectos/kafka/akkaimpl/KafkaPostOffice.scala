@@ -31,7 +31,7 @@ class KafkaPostOffice extends GraphStage[BidiShape[(Int, KafkaRequest), RequestE
             fail(o1, new Exception(err.messageWithContext))
           case Attempt.Successful((apiKey, requestPayload, decoder)) =>
             correlationIdsInFlight += correlationId -> decoder
-            push(o1, RequestEnvelope(apiKey, 1, correlationId, "scala-kafka", requestPayload))
+            push(o1, RequestEnvelope(apiKey, apiVersion = 0, correlationId = correlationId, clientId = "scala-kafka", request = requestPayload))
         }
       }
     })

@@ -18,15 +18,29 @@ class KafkaConnection(settings: KafkaConnection.Settings) extends Actor with Act
   private implicit val materializer = ActorMaterializer()
   private implicit val ec = context.dispatcher
 
+  val logging: BidiFlow[ByteString, ByteString, ByteString, ByteString, NotUsed] = {
+    // function that takes a string, prints it with some fixed prefix in front and returns the string again
+    def logger(prefix: String) = Flow[ByteString].map { chunk =>
+      log.debug(s"$prefix size: ${chunk.size} bytes -> ${chunk.toByteVector.toHex}")
+      chunk
+    }
+
+    val inputLogger = logger("[OUT]")
+    val outputLogger = logger("[IN]")
+
+    // create BidiFlow with a separate logger function for each of both streams
+    BidiFlow.fromFlows(outputLogger, inputLogger)
+  }
+
   private var requests = Map.empty[Int, ActorRef]
-  private val connection = Tcp(context.system).outgoingConnection(settings.host, settings.port)
+  private val connection = Tcp().outgoingConnection(settings.host, settings.port).join(logging)
   private val postOffice = BidiFlow.fromGraph(new KafkaPostOffice)
   private val frame = Framing.simpleFramingProtocol(Int.MaxValue - 4)
   private val protocol = postOffice atop kafkaEnvelopes atop frame
   private val queue = Source.queue[(Int, KafkaRequest)](bufferSize = settings.bufferSize, overflowStrategy = OverflowStrategy.fail)
     .via(protocol.join(connection))
     .toMat(Sink.actorRef(context.self, Done))(Keep.left)
-    .run()(materializer)
+    .run()
 
   def nextId = {
     @tailrec

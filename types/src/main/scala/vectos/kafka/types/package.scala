@@ -3,17 +3,16 @@ package vectos.kafka
 import scodec._
 import scodec.bits.BitVector
 import scodec.codecs._
-import vectos.kafka.types.{FetchTypes, MetadataTypes, ProduceTypes}
-import vectos.kafka.types.KafkaResponse.Fetch
+import vectos.kafka.types.{FetchTypes, MetadataTypes, OffsetTypes, ProduceTypes}
 
-trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes
+trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with OffsetTypes
 
 package object types extends MessageTypes {
 
   def responseDecoder(f: KafkaRequest): Attempt[BitVector => Attempt[KafkaResponse]] = f match {
     case _ : KafkaRequest.Produce => Attempt.successful(KafkaResponse.produce.decodeValue)
     case _ : KafkaRequest.Fetch => Attempt.successful(KafkaResponse.fetch.decodeValue)
-//    case _ : KafkaRequest.Offsets => ???
+    case _ : KafkaRequest.ListOffset => Attempt.successful(KafkaResponse.listOffset.decodeValue)
     case _ : KafkaRequest.Metadata => Attempt.successful(KafkaResponse.metaData.decodeValue)
     //    case _ : KafkaRequest.LeaderAndIsr => Some(4)
     //    case _ : KafkaRequest.StopReplica => Some(5)
@@ -36,7 +35,7 @@ package object types extends MessageTypes {
   def apiKeyAndPayload(f: KafkaRequest): Attempt[(Int, BitVector)] = f match {
     case x : KafkaRequest.Produce => KafkaRequest.produce.encode(x).map(0 -> _)
     case x : KafkaRequest.Fetch => KafkaRequest.fetch.encode(x).map(1 -> _)
-    //    case _ : KafkaRequest.Offsets => Some(2)
+    case x : KafkaRequest.ListOffset => KafkaRequest.listOffset.encode(x).map(2 -> _)
     case x : KafkaRequest.Metadata => KafkaRequest.metaData.encode(x).map(3 -> _)
     //    case _ : KafkaRequest.LeaderAndIsr => Some(4)
     //    case _ : KafkaRequest.StopReplica => Some(5)

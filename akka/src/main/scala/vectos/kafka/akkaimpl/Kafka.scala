@@ -41,6 +41,19 @@ object Kafka {
       .mapAsync(parallelism)(produce)
   }
 
+  def listOffsets(implicit ctx: Context) = {
+
+    val topics = Vector(ListOffsetTopicRequest(topic = "test", partitions = Vector(ListOffsetTopicPartitionRequest(partition = 0, time = -1, maxNumberOfOffsets = 1))))
+    val request = KafkaRequest.ListOffset(replicaId = -1, topics = topics)
+
+    doRequest(request)
+  }
+
+  def metadata(implicit ctx: Context) = {
+
+    doRequest(KafkaRequest.Metadata(Vector("test")))
+  }
+
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
              (implicit ctx: Context) = {

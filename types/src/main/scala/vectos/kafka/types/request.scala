@@ -10,6 +10,7 @@ object KafkaRequest {
 
   final case class Produce(acks: Int, timeout: Int, topics: Vector[ProduceTopicRequest]) extends KafkaRequest
   final case class Fetch(replicaId: Int, maxWaitTime: Int, minBytes: Int, topics: Vector[FetchTopicRequest]) extends KafkaRequest
+  final case class ListOffset(replicaId: Int, topics: Vector[ListOffsetTopicRequest]) extends KafkaRequest
   final case class Metadata(topics: Vector[String]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
@@ -17,6 +18,9 @@ object KafkaRequest {
 
   def fetch(implicit topic: Codec[FetchTopicRequest]): Codec[Fetch] =
     (("replicaId" | int32) :: ("maxWaitTime" | int32) :: ("minBytes" | int32) :: ("topics" | kafkaArray(topic))).as[Fetch]
+
+  def listOffset(implicit topic: Codec[ListOffsetTopicRequest]): Codec[ListOffset] =
+    (("replicaId" | int32) :: ("topics" | kafkaArray(topic))).as[ListOffset]
 
   def metaData: Codec[Metadata] =
     ("topics" | kafkaArray(kafkaString)).as[Metadata]
