@@ -54,6 +54,10 @@ object Kafka {
 
   def groupCoordinator(groupId: String)(implicit ctx: Context) = doRequest(KafkaRequest.GroupCoordinator(Some(groupId)))
 
+  def offsetFetch(consumerGroup: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.OffsetFetch(Some(consumerGroup), Vector(OffsetFetchTopicRequest(Some("test"), Vector(0)))))
+
+
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
              (implicit ctx: Context) = {

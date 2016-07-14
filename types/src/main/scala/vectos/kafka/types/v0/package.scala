@@ -5,7 +5,7 @@ import scodec.bits.BitVector
 import scodec.codecs._
 import vectos.kafka.types.v0.messages._
 
-trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with ListOffsetTypes
+trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with ListOffsetTypes with OffsetFetchTypes
 
 package object v0 extends MessageTypes {
 
@@ -19,7 +19,7 @@ package object v0 extends MessageTypes {
     //    case _ : KafkaRequest.UpdateMetadate => Some(6)
     //    case _ : KafkaRequest.ControlledShutdown => Some(7)
     //    case _ : KafkaRequest.OffsetCommit => Some(8)
-    //    case _ : KafkaRequest.OffsetFetch => Some(9)
+    case _ : KafkaRequest.OffsetFetch => Attempt.successful(KafkaResponse.offsetFetch.decodeValue)
     case _ : KafkaRequest.GroupCoordinator => Attempt.successful(KafkaResponse.groupCoordinator.decodeValue)
     //    case _ : KafkaRequest.JoinGroup => Some(11)
     //    case _ : KafkaRequest.Heartbeat => Some(12)
@@ -42,7 +42,7 @@ package object v0 extends MessageTypes {
     //    case _ : KafkaRequest.UpdateMetadate => Some(6)
     //    case _ : KafkaRequest.ControlledShutdown => Some(7)
     //    case _ : KafkaRequest.OffsetCommit => Some(8)
-    //    case _ : KafkaRequest.OffsetFetch => Some(9)
+    case x : KafkaRequest.OffsetFetch => KafkaRequest.offsetFetch.encode(x).map(9 -> _)
     case x : KafkaRequest.GroupCoordinator => KafkaRequest.groupCoordinator.encode(x).map(10 -> _)
     //    case _ : KafkaRequest.JoinGroup => Some(11)
     //    case _ : KafkaRequest.Heartbeat => Some(12)

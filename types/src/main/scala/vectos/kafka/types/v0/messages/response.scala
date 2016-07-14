@@ -13,6 +13,7 @@ object KafkaResponse {
   final case class Fetch(throttleTime: Int, topics: Vector[FetchTopicResponse]) extends KafkaResponse
   final case class ListOffset(topics: Vector[ListOffsetTopicResponse]) extends KafkaResponse
   final case class Metadata(brokers: Vector[MetadataBrokerResponse], topicMetadata: Vector[MetadataTopicMetadataResponse]) extends KafkaResponse
+  final case class OffsetFetch(topics: Vector[OffsetFetchTopicResponse]) extends KafkaResponse
   final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
@@ -26,6 +27,9 @@ object KafkaResponse {
 
   def metaData(implicit brokers: Codec[MetadataBrokerResponse], metadata: Codec[MetadataTopicMetadataResponse]): Codec[Metadata] =
     (("brokers" | kafkaArray(brokers)) :: ("metadata" | kafkaArray(metadata))).as[Metadata]
+
+  def offsetFetch(implicit topic: Codec[OffsetFetchTopicResponse]): Codec[OffsetFetch] =
+    ("topics" | kafkaArray(topic)).as[OffsetFetch]
 
   def groupCoordinator(implicit kafkaError: Codec[KafkaError]): Codec[GroupCoordinator] =
     (("errorCode" | kafkaError) :: ("coordinatorId" | int32) :: ("coordinatorHost" | kafkaString) :: ("coordinatorPort" | int32)).as[GroupCoordinator]

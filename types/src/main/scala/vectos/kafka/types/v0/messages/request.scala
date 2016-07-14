@@ -13,6 +13,7 @@ object KafkaRequest {
   final case class Fetch(replicaId: Int, maxWaitTime: Int, minBytes: Int, topics: Vector[FetchTopicRequest]) extends KafkaRequest
   final case class ListOffset(replicaId: Int, topics: Vector[ListOffsetTopicRequest]) extends KafkaRequest
   final case class Metadata(topics: Vector[Option[String]]) extends KafkaRequest
+  final case class OffsetFetch(consumerGroup: Option[String], topics: Vector[OffsetFetchTopicRequest]) extends KafkaRequest
   final case class GroupCoordinator(groupId: Option[String]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
@@ -26,6 +27,9 @@ object KafkaRequest {
 
   def metaData: Codec[Metadata] =
     ("topics" | kafkaArray(kafkaString)).as[Metadata]
+
+  def offsetFetch(implicit topic: Codec[OffsetFetchTopicRequest]): Codec[OffsetFetch] =
+    (("replicaId" | kafkaString) :: ("topics" | kafkaArray(topic))).as[OffsetFetch]
 
   def groupCoordinator: Codec[GroupCoordinator] =
     ("groupId" | kafkaString).as[GroupCoordinator]
