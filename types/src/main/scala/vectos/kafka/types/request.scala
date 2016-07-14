@@ -12,6 +12,7 @@ object KafkaRequest {
   final case class Fetch(replicaId: Int, maxWaitTime: Int, minBytes: Int, topics: Vector[FetchTopicRequest]) extends KafkaRequest
   final case class ListOffset(replicaId: Int, topics: Vector[ListOffsetTopicRequest]) extends KafkaRequest
   final case class Metadata(topics: Vector[String]) extends KafkaRequest
+  final case class GroupCoordinator(groupId: String) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
     (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
@@ -24,6 +25,10 @@ object KafkaRequest {
 
   def metaData: Codec[Metadata] =
     ("topics" | kafkaArray(kafkaString)).as[Metadata]
+
+  def groupCoordinator: Codec[GroupCoordinator] =
+    ("groupId" | kafkaString).as[GroupCoordinator]
+
 }
 
 case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: String, request: BitVector)

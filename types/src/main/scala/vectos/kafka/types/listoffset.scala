@@ -3,7 +3,7 @@ package vectos.kafka.types
 import scodec._
 import scodec.codecs._
 
-trait OffsetTypes {
+trait ListOffsetTypes {
 
   final case class ListOffsetTopicPartitionRequest(partition: Int, time: Long, maxNumberOfOffsets: Int)
 

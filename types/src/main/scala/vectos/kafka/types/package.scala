@@ -3,9 +3,9 @@ package vectos.kafka
 import scodec._
 import scodec.bits.BitVector
 import scodec.codecs._
-import vectos.kafka.types.{FetchTypes, MetadataTypes, OffsetTypes, ProduceTypes}
+import vectos.kafka.types.{FetchTypes, MetadataTypes, ListOffsetTypes, ProduceTypes}
 
-trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with OffsetTypes
+trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with ListOffsetTypes
 
 package object types extends MessageTypes {
 
@@ -20,7 +20,7 @@ package object types extends MessageTypes {
     //    case _ : KafkaRequest.ControlledShutdown => Some(7)
     //    case _ : KafkaRequest.OffsetCommit => Some(8)
     //    case _ : KafkaRequest.OffsetFetch => Some(9)
-    //    case _ : KafkaRequest.GroupCoordinator => Some(10)
+    case _ : KafkaRequest.GroupCoordinator => Attempt.successful(KafkaResponse.groupCoordinator.decodeValue)
     //    case _ : KafkaRequest.JoinGroup => Some(11)
     //    case _ : KafkaRequest.Heartbeat => Some(12)
     //    case _ : KafkaRequest.LeaveGroup => Some(13)
@@ -43,7 +43,7 @@ package object types extends MessageTypes {
     //    case _ : KafkaRequest.ControlledShutdown => Some(7)
     //    case _ : KafkaRequest.OffsetCommit => Some(8)
     //    case _ : KafkaRequest.OffsetFetch => Some(9)
-    //    case _ : KafkaRequest.GroupCoordinator => Some(10)
+    case x : KafkaRequest.GroupCoordinator => KafkaRequest.groupCoordinator.encode(x).map(10 -> _)
     //    case _ : KafkaRequest.JoinGroup => Some(11)
     //    case _ : KafkaRequest.Heartbeat => Some(12)
     //    case _ : KafkaRequest.LeaveGroup => Some(13)

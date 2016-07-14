@@ -49,10 +49,9 @@ object Kafka {
     doRequest(request)
   }
 
-  def metadata(implicit ctx: Context) = {
+  def metadata(topics: Vector[String])(implicit ctx: Context) = doRequest(KafkaRequest.Metadata(topics))
 
-    doRequest(KafkaRequest.Metadata(Vector("test")))
-  }
+  def groupCoordinator(groupId: String)(implicit ctx: Context) = doRequest(KafkaRequest.GroupCoordinator(groupId))
 
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
