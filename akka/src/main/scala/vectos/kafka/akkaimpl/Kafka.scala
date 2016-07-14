@@ -57,6 +57,8 @@ object Kafka {
   def offsetFetch(consumerGroup: String)(implicit ctx: Context) =
     doRequest(KafkaRequest.OffsetFetch(Some(consumerGroup), Vector(OffsetFetchTopicRequest(Some("test"), Vector(0)))))
 
+  def offsetCommit(consumerGroup: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.OffsetCommit(Some(consumerGroup), Vector(OffsetCommitTopicRequest(Some("test"), Vector(OffsetCommitTopicPartitionRequest(0, 0l, None))))))
 
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
