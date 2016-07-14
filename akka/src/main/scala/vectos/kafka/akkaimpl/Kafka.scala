@@ -4,7 +4,7 @@ import akka.actor.ActorRef
 import akka.pattern.ask
 import akka.stream.scaladsl.Flow
 import akka.util.Timeout
-import vectos.kafka.types.{KafkaRequest, KafkaResponse, _}
+import vectos.kafka.types.v0._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try

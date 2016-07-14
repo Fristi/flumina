@@ -4,7 +4,7 @@ import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import akka.stream.{Attributes, BidiShape, Inlet, Outlet}
 import scodec.bits.BitVector
 import scodec.{Attempt, Err}
-import vectos.kafka.types._
+import vectos.kafka.types.v0._
 
 class KafkaPostOffice extends GraphStage[BidiShape[(Int, KafkaRequest), RequestEnvelope, ResponseEnvelope, (Int, KafkaResponse)]] {
 

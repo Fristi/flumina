@@ -1,13 +1,13 @@
-package vectos.kafka
+package vectos.kafka.types
 
 import scodec._
 import scodec.bits.BitVector
 import scodec.codecs._
-import vectos.kafka.types.{FetchTypes, MetadataTypes, ListOffsetTypes, ProduceTypes}
+import vectos.kafka.types.v0.{FetchTypes, ProduceTypes, MetadataTypes, ListOffsetTypes}
 
 trait MessageTypes extends FetchTypes with ProduceTypes with MetadataTypes with ListOffsetTypes
 
-package object types extends MessageTypes {
+package object v0 extends MessageTypes {
 
   def responseDecoder(f: KafkaRequest): Attempt[BitVector => Attempt[KafkaResponse]] = f match {
     case _ : KafkaRequest.Produce => Attempt.successful(KafkaResponse.produce.decodeValue)

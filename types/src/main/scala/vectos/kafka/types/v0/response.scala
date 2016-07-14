@@ -1,7 +1,7 @@
-package vectos.kafka.types
+package vectos.kafka.types.v0
 
 import scodec._
-import scodec.bits.{crc, _}
+import scodec.bits._
 import scodec.codecs._
 
 sealed trait KafkaResponse

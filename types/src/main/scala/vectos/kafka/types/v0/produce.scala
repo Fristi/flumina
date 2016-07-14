@@ -1,4 +1,4 @@
-package vectos.kafka.types
+package vectos.kafka.types.v0
 
 import scodec.Codec
 import scodec.codecs._

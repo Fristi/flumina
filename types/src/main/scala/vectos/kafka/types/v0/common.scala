@@ -1,8 +1,8 @@
-package vectos.kafka.types
+package vectos.kafka.types.v0
 
-import scodec.{Attempt, Codec, DecodeResult, Err, SizeBound}
 import scodec.bits.{BitVector, crc}
 import scodec.codecs._
+import scodec.{Attempt, Codec, DecodeResult, Err, SizeBound}
 
 sealed trait KafkaError
 
