@@ -1,8 +1,9 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec._
 import scodec.bits._
 import scodec.codecs._
+import vectos.kafka.types.v0._
 
 sealed trait KafkaResponse
 
@@ -12,7 +13,7 @@ object KafkaResponse {
   final case class Fetch(throttleTime: Int, topics: Vector[FetchTopicResponse]) extends KafkaResponse
   final case class ListOffset(topics: Vector[ListOffsetTopicResponse]) extends KafkaResponse
   final case class Metadata(brokers: Vector[MetadataBrokerResponse], topicMetadata: Vector[MetadataTopicMetadataResponse]) extends KafkaResponse
-  final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: String, coordinatorPort: Int) extends KafkaResponse
+  final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
     ("topics" | kafkaArray(topic)).as[Produce]

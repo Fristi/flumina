@@ -1,4 +1,4 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec.bits.{BitVector, crc}
 import scodec.codecs._

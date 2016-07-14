@@ -1,8 +1,9 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec._
 import scodec.bits.BitVector
 import scodec.codecs._
+import vectos.kafka.types.v0._
 
 sealed trait KafkaRequest
 
@@ -11,8 +12,8 @@ object KafkaRequest {
   final case class Produce(acks: Int, timeout: Int, topics: Vector[ProduceTopicRequest]) extends KafkaRequest
   final case class Fetch(replicaId: Int, maxWaitTime: Int, minBytes: Int, topics: Vector[FetchTopicRequest]) extends KafkaRequest
   final case class ListOffset(replicaId: Int, topics: Vector[ListOffsetTopicRequest]) extends KafkaRequest
-  final case class Metadata(topics: Vector[String]) extends KafkaRequest
-  final case class GroupCoordinator(groupId: String) extends KafkaRequest
+  final case class Metadata(topics: Vector[Option[String]]) extends KafkaRequest
+  final case class GroupCoordinator(groupId: Option[String]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
     (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
@@ -31,7 +32,7 @@ object KafkaRequest {
 
 }
 
-case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: String, request: BitVector)
+case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: Option[String], request: BitVector)
 
 object RequestEnvelope {
   implicit val codec = (

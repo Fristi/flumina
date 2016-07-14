@@ -1,17 +1,15 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec.Codec
 import scodec.codecs._
 
-/**
-  * Created by mark on 07/07/16.
-  */
+
 trait FetchTypes {
   final case class FetchTopicPartitionRequest(partition: Int, fetchOffset: Long, maxBytes: Int)
-  final case class FetchTopicRequest(topic: String, partitions: Vector[FetchTopicPartitionRequest])
+  final case class FetchTopicRequest(topic: Option[String], partitions: Vector[FetchTopicPartitionRequest])
 
   final case class FetchTopicPartitionResponse(partition: Int, errorCode: KafkaError, highWaterMark: Long, messages: Vector[MessageSetEntry])
-  final case class FetchTopicResponse(topic: String, partitions: Vector[FetchTopicPartitionResponse])
+  final case class FetchTopicResponse(topic: Option[String], partitions: Vector[FetchTopicPartitionResponse])
 
   object FetchTopicPartitionRequest {
     implicit def codec: Codec[FetchTopicPartitionRequest] =

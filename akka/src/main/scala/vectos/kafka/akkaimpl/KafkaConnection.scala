@@ -7,7 +7,7 @@ import akka.util.ByteString
 import akka.pattern.pipe
 import akka.{Done, NotUsed}
 import scodec.Attempt
-import vectos.kafka.types.v0.{KafkaRequest, KafkaResponse, RequestEnvelope, ResponseEnvelope}
+import vectos.kafka.types.v0.messages.{KafkaRequest, KafkaResponse, RequestEnvelope, ResponseEnvelope}
 
 import scala.annotation.tailrec
 import scala.util.{Failure, Success}

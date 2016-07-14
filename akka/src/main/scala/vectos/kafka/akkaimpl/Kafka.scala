@@ -5,6 +5,7 @@ import akka.pattern.ask
 import akka.stream.scaladsl.Flow
 import akka.util.Timeout
 import vectos.kafka.types.v0._
+import vectos.kafka.types.v0.messages.{KafkaRequest, KafkaResponse, Message, MessageSetEntry}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
@@ -43,15 +44,15 @@ object Kafka {
 
   def listOffsets(implicit ctx: Context) = {
 
-    val topics = Vector(ListOffsetTopicRequest(topic = "test", partitions = Vector(ListOffsetTopicPartitionRequest(partition = 0, time = -1, maxNumberOfOffsets = 1))))
+    val topics = Vector(ListOffsetTopicRequest(topic = Some("test"), partitions = Vector(ListOffsetTopicPartitionRequest(partition = 0, time = -1, maxNumberOfOffsets = 1))))
     val request = KafkaRequest.ListOffset(replicaId = -1, topics = topics)
 
     doRequest(request)
   }
 
-  def metadata(topics: Vector[String])(implicit ctx: Context) = doRequest(KafkaRequest.Metadata(topics))
+  def metadata(topics: Vector[String])(implicit ctx: Context) = doRequest(KafkaRequest.Metadata(topics.map(Some.apply)))
 
-  def groupCoordinator(groupId: String)(implicit ctx: Context) = doRequest(KafkaRequest.GroupCoordinator(groupId))
+  def groupCoordinator(groupId: String)(implicit ctx: Context) = doRequest(KafkaRequest.GroupCoordinator(Some(groupId)))
 
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
@@ -59,7 +60,7 @@ object Kafka {
     val topics = values
         .groupBy { case (tp, _) => tp.topic }
           .map { case (topic, tpvalues) =>
-            ProduceTopicRequest(topic, tpvalues.map { case (tp, keyValues) =>
+            ProduceTopicRequest(Some(topic), tpvalues.map { case (tp, keyValues) =>
               val messages = keyValues.map { case (key, value) =>
                 MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = key.toVector, value = value.toVector))
               }
@@ -82,7 +83,7 @@ object Kafka {
     val topics = topicPartitionOffsets
       .groupBy { case (tp, _) => tp.topic }
       .map { case (topic, tpo) =>
-        FetchTopicRequest(topic, tpo.map { case (tp, offset) => FetchTopicPartitionRequest(tp.partition, offset, 8 * 1024) }.toVector)
+        FetchTopicRequest(Some(topic), tpo.map { case (tp, offset) => FetchTopicPartitionRequest(tp.partition, offset, 8 * 1024) }.toVector)
       }
       .toVector
 

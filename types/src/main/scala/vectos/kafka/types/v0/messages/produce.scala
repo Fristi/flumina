@@ -1,4 +1,4 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec.Codec
 import scodec.codecs._
@@ -9,10 +9,10 @@ import scodec.codecs._
 trait ProduceTypes {
 
   final case class ProduceTopicPartitionRequest(partition: Int, messageSets: Vector[MessageSetEntry])
-  final case class ProduceTopicRequest(topicName: String, partitions: Vector[ProduceTopicPartitionRequest])
+  final case class ProduceTopicRequest(topicName: Option[String], partitions: Vector[ProduceTopicPartitionRequest])
 
   final case class ProduceTopicPartitionResponse(partition: Int, errorCode: KafkaError, offset: Long)
-  final case class ProduceTopicResponse(topicName: String, partitions: Vector[ProduceTopicPartitionResponse])
+  final case class ProduceTopicResponse(topicName: Option[String], partitions: Vector[ProduceTopicPartitionResponse])
 
   object ProduceTopicPartitionRequest {
     implicit def codec(implicit messageSet: Codec[MessageSetEntry]): Codec[ProduceTopicPartitionRequest] =

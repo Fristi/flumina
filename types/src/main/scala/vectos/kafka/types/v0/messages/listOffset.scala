@@ -1,4 +1,4 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec._
 import scodec.codecs._
@@ -12,7 +12,7 @@ trait ListOffsetTypes {
       (("partition" | int32) :: ("time" | int64) :: ("maxNumberOfOffsets" | int32)).as[ListOffsetTopicPartitionRequest]
   }
 
-  final case class ListOffsetTopicRequest(topic: String, partitions: Vector[ListOffsetTopicPartitionRequest])
+  final case class ListOffsetTopicRequest(topic: Option[String], partitions: Vector[ListOffsetTopicPartitionRequest])
 
   object ListOffsetTopicRequest {
     implicit def codec(implicit partition: Codec[ListOffsetTopicPartitionRequest]): Codec[ListOffsetTopicRequest] =
@@ -26,7 +26,7 @@ trait ListOffsetTypes {
       (("partition" | int32) :: ("errorCode" | kafkaError) :: ("offsets" | kafkaArray(int64))).as[ListOffsetTopicPartitionResponse]
   }
 
-  final case class ListOffsetTopicResponse(topic: String, partitions: Vector[ListOffsetTopicPartitionResponse])
+  final case class ListOffsetTopicResponse(topic: Option[String], partitions: Vector[ListOffsetTopicPartitionResponse])
 
   object ListOffsetTopicResponse {
     implicit def codec(implicit partition: Codec[ListOffsetTopicPartitionResponse]): Codec[ListOffsetTopicResponse] =

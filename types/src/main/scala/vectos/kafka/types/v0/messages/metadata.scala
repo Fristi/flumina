@@ -1,10 +1,10 @@
-package vectos.kafka.types.v0
+package vectos.kafka.types.v0.messages
 
 import scodec.Codec
 import scodec.codecs._
 
 trait MetadataTypes {
-  final case class MetadataBrokerResponse(nodeId: Int, host: String, port: Int)
+  final case class MetadataBrokerResponse(nodeId: Int, host: Option[String], port: Int)
 
   final case class MetadataTopicPartitionMetadataResponse(
     errorCode: KafkaError,
@@ -16,8 +16,8 @@ trait MetadataTypes {
 
   final case class MetadataTopicMetadataResponse(
     errorCode: KafkaError,
-    name: String, partitionMetaData:
-    Vector[MetadataTopicPartitionMetadataResponse]
+    name: Option[String],
+    partitionMetaData: Vector[MetadataTopicPartitionMetadataResponse]
   )
 
   object MetadataBrokerResponse {
