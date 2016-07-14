@@ -86,8 +86,8 @@ object Message {
     override def encode(value: Message): Attempt[BitVector] = for {
       magicByte <- int8.encode(value.magicByte)
       attributes <- int8.encode(value.attributes)
-      key <- kafkaArray(byte).encode(value.key)
-      value <- kafkaArray(byte).encode(value.value)
+      key <- kafkaBytes.encode(value.key)
+      value <- kafkaBytes.encode(value.value)
       payload = magicByte ++ attributes ++ key ++ value
     } yield crc.crc32(payload) ++ payload
 
@@ -103,8 +103,8 @@ object Message {
 
         magicByte <- int8.decode(crcPayload.remainder)
         attributes <- int8.decode(magicByte.remainder)
-        key <- kafkaArray(byte).decode(attributes.remainder)
-        value <- kafkaArray(byte).decode(key.remainder)
+        key <- kafkaBytes.decode(attributes.remainder)
+        value <- kafkaBytes.decode(key.remainder)
       } yield {
         DecodeResult(Message(magicByte.value, attributes.value, key.value, value.value), value.remainder)
       }

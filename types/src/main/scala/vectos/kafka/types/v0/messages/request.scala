@@ -16,6 +16,7 @@ object KafkaRequest {
   final case class OffsetCommit(consumerGroup: Option[String], topics: Vector[OffsetCommitTopicRequest]) extends KafkaRequest
   final case class OffsetFetch(consumerGroup: Option[String], topics: Vector[OffsetFetchTopicRequest]) extends KafkaRequest
   final case class GroupCoordinator(groupId: Option[String]) extends KafkaRequest
+  final case class JoinGroup(groupId: Option[String], sessionTimeOut: Int, memberId: Option[String], protocolType: Option[String], groupProtocols: Vector[JoinGroupProtocolRequest]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
     (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
@@ -37,6 +38,15 @@ object KafkaRequest {
 
   def groupCoordinator: Codec[GroupCoordinator] =
     ("groupId" | kafkaString).as[GroupCoordinator]
+
+  def joinGroup(implicit groupProtocol: Codec[JoinGroupProtocolRequest]): Codec[JoinGroup] =
+    (
+      ("groupId" | kafkaString) ::
+      ("sessionTimeOut" | int32) ::
+      ("memberId" | kafkaString) ::
+      ("protocolType" | kafkaString) ::
+      ("groupProtocols" | kafkaArray(groupProtocol))
+    ).as[JoinGroup]
 
 }
 

@@ -3,13 +3,12 @@ package vectos.kafka.akkaimpl
 import akka.actor.ActorSystem
 import akka.routing.RoundRobinPool
 import akka.stream._
-import akka.stream.scaladsl.{Flow, Sink, Source}
+import akka.stream.scaladsl.{Flow, Sink}
 import akka.util.Timeout
 import vectos.kafka.types.v0.messages.KafkaResponse
 
 import scala.concurrent.duration._
-import scala.util.Random
-
+import Kafka._
 
 
 object Main extends App {
@@ -18,13 +17,13 @@ object Main extends App {
   implicit val materializer = ActorMaterializer()
   implicit val ec = system.dispatcher
 
-  implicit val context = Kafka.Context(
+  implicit val context = Context(
     connection = system.actorOf(RoundRobinPool(15).props(KafkaConnection.props(KafkaConnection.Settings("localhost", 9092, 1000)))),
     requestTimeout = Timeout(2.seconds),
     executionContext = system.dispatcher
   )
 
-  def producer = Kafka.TopicPartition("test", 0) -> ("key".getBytes -> "Hello world".getBytes)
+  def producer = TopicPartition("test", 0) -> ("key".getBytes -> "Hello world".getBytes)
 
   val interleave = Flow[KafkaResponse]
     .collect { case u: KafkaResponse.Produce => u }
@@ -49,9 +48,15 @@ object Main extends App {
 //    .runWith(interleave)
 //
 
-  Kafka.listOffsets.onComplete(println)
-  Kafka.metadata(Vector("test")).onComplete(println)
-  Kafka.groupCoordinator("test").onComplete(println)
+//  Kafka.listOffsets.onComplete(println)
+//  Kafka.metadata(Vector("test")).onComplete(println)
+//  Kafka.groupCoordinator("test").onComplete(println)
+  (for {
+    _ <- offsetCommit("test", Map(TopicPartition("test", 0) -> 22l))
+    offset <- offsetFetch("test", Set(TopicPartition("test", 0)))
+  } yield offset).onComplete(println)
+
+//  Kafka.joinGroup("test").onComplete(println)
 }
 
 

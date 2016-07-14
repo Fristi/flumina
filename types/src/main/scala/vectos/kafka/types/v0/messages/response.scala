@@ -16,6 +16,7 @@ object KafkaResponse {
   final case class OffsetCommit(topics: Vector[OffsetCommitTopicResponse]) extends KafkaResponse
   final case class OffsetFetch(topics: Vector[OffsetFetchTopicResponse]) extends KafkaResponse
   final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
+  final case class JoinGroup(errorCode: KafkaError, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
     ("topics" | kafkaArray(topic)).as[Produce]
@@ -37,6 +38,16 @@ object KafkaResponse {
 
   def groupCoordinator(implicit kafkaError: Codec[KafkaError]): Codec[GroupCoordinator] =
     (("errorCode" | kafkaError) :: ("coordinatorId" | int32) :: ("coordinatorHost" | kafkaString) :: ("coordinatorPort" | int32)).as[GroupCoordinator]
+
+  def joinGroup(implicit kafkaError: Codec[KafkaError], member: Codec[JoinGroupMemberResponse]): Codec[JoinGroup] =
+    (
+      ("errorCode" | kafkaError) ::
+      ("generationId" | int32) ::
+      ("groupProtocol" | kafkaString) ::
+      ("leaderId" | kafkaString) ::
+      ("memberId" | kafkaString) ::
+      ("members" | kafkaArray(member))
+    ).as[JoinGroup]
 }
 
 case class ResponseEnvelope(correlationId: Int, response: BitVector)

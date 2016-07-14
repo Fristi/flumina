@@ -50,15 +50,20 @@ object Kafka {
     doRequest(request)
   }
 
-  def metadata(topics: Vector[String])(implicit ctx: Context) = doRequest(KafkaRequest.Metadata(topics.map(Some.apply)))
+  def metadata(topics: Vector[String])(implicit ctx: Context) =
+    doRequest(KafkaRequest.Metadata(topics.map(Some.apply)))
 
-  def groupCoordinator(groupId: String)(implicit ctx: Context) = doRequest(KafkaRequest.GroupCoordinator(Some(groupId)))
+  def groupCoordinator(groupId: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.GroupCoordinator(Some(groupId)))
 
-  def offsetFetch(consumerGroup: String)(implicit ctx: Context) =
-    doRequest(KafkaRequest.OffsetFetch(Some(consumerGroup), Vector(OffsetFetchTopicRequest(Some("test"), Vector(0)))))
+  def offsetFetch(consumerGroup: String, topicPartitions: Set[TopicPartition])(implicit ctx: Context) =
+    doRequest(KafkaRequest.OffsetFetch(Some(consumerGroup), topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(Some(topic), tp.map(_.partition).toVector) }.toVector))
 
-  def offsetCommit(consumerGroup: String)(implicit ctx: Context) =
-    doRequest(KafkaRequest.OffsetCommit(Some(consumerGroup), Vector(OffsetCommitTopicRequest(Some("test"), Vector(OffsetCommitTopicPartitionRequest(0, 0l, None))))))
+  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, Long])(implicit ctx: Context) =
+    doRequest(KafkaRequest.OffsetCommit(Some(consumerGroup), Vector(OffsetCommitTopicRequest(Some("test"), Vector(OffsetCommitTopicPartitionRequest(0, 0l, Option("ja")))))))
+
+  def joinGroup(group: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.JoinGroup(Some(group), 30000, None, Some("consumer"), Vector.empty))
 
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
