@@ -17,6 +17,7 @@ object KafkaRequest {
   final case class OffsetFetch(consumerGroup: Option[String], topics: Vector[OffsetFetchTopicRequest]) extends KafkaRequest
   final case class GroupCoordinator(groupId: Option[String]) extends KafkaRequest
   final case class JoinGroup(groupId: Option[String], sessionTimeOut: Int, memberId: Option[String], protocolType: Option[String], groupProtocols: Vector[JoinGroupProtocolRequest]) extends KafkaRequest
+  final case class Heartbeat(groupId: Option[String], generationId: Int, memberId: Option[String]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
     (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
@@ -47,6 +48,9 @@ object KafkaRequest {
       ("protocolType" | kafkaString) ::
       ("groupProtocols" | kafkaArray(groupProtocol))
     ).as[JoinGroup]
+
+  def heartbeat: Codec[Heartbeat] =
+    (("groupId" | kafkaString) :: ("generationId" | int32) :: ("memberId" | kafkaString)).as[Heartbeat]
 
 }
 

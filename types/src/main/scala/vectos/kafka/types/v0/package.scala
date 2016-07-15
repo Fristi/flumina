@@ -29,7 +29,7 @@ package object v0 extends MessageTypes {
     case _ : KafkaRequest.OffsetFetch => Attempt.successful(KafkaResponse.offsetFetch.decodeValue)
     case _ : KafkaRequest.GroupCoordinator => Attempt.successful(KafkaResponse.groupCoordinator.decodeValue)
     case _ : KafkaRequest.JoinGroup => Attempt.successful(KafkaResponse.joinGroup.decodeValue)
-    //    case _ : KafkaRequest.Heartbeat => Some(12)
+    case _ : KafkaRequest.Heartbeat => Attempt.successful(KafkaResponse.heartbeat.decodeValue)
     //    case _ : KafkaRequest.LeaveGroup => Some(13)
     //    case _ : KafkaRequest.SyncGroup => Some(14)
     //    case _ : KafkaRequest.DescribeGroups => Some(15)
@@ -52,7 +52,7 @@ package object v0 extends MessageTypes {
     case x : KafkaRequest.OffsetFetch => KafkaRequest.offsetFetch.encode(x).map(9 -> _)
     case x : KafkaRequest.GroupCoordinator => KafkaRequest.groupCoordinator.encode(x).map(10 -> _)
     case x : KafkaRequest.JoinGroup => KafkaRequest.joinGroup.encode(x).map(11 -> _)
-    //    case _ : KafkaRequest.Heartbeat => Some(12)
+    case x : KafkaRequest.Heartbeat => KafkaRequest.heartbeat.encode(x).map(12 -> _)
     //    case _ : KafkaRequest.LeaveGroup => Some(13)
     //    case _ : KafkaRequest.SyncGroup => Some(14)
     //    case _ : KafkaRequest.DescribeGroups => Some(15)
@@ -61,41 +61,4 @@ package object v0 extends MessageTypes {
     //    case _ : KafkaRequest.ApiVersions => Some(18)
     case _ => Attempt.failure(Err("No api-key found for this request"))
   }
-
-
-  private class KafkaStringCodec extends Codec[Option[String]] {
-    val codec = variableSizeBytes(int16, ascii)
-
-    override def decode(bits: BitVector): Attempt[DecodeResult[Option[String]]] = for {
-      size <- int16.decode(bits)
-      str <- if(size.value == -1) Attempt.successful(DecodeResult(None, size.remainder))
-      else ascii.decode(size.remainder).map(_.map(Some.apply))
-    } yield str
-
-    override def encode(value: Option[String]): Attempt[BitVector] = value match {
-      case Some(str) => codec.encode(str)
-      case None => Attempt.successful(BitVector(-1))
-    }
-
-    override def sizeBound: SizeBound = codec.sizeBound
-  }
-
-  private class KafkaArrayCodec[A](valueCodec: Codec[A]) extends Codec[Vector[A]] {
-    val codec = vectorOfN(int32, valueCodec)
-
-    override def decode(bits: BitVector): Attempt[DecodeResult[Vector[A]]] = for {
-      size <- int32.decode(bits)
-      xs <- if(size.value == -1) Attempt.successful(DecodeResult(Vector.empty[A], size.remainder))
-      else vectorOfN(provide(size.value), valueCodec).decode(size.remainder)
-    } yield xs
-
-    override def encode(value: Vector[A]): Attempt[BitVector] =
-      if(value.isEmpty) Attempt.successful(BitVector(-1))
-      else codec.encode(value)
-
-    override def sizeBound: SizeBound = codec.sizeBound
-  }
-
-  val kafkaString: Codec[Option[String]] = new KafkaStringCodec
-  def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] = new KafkaArrayCodec(valueCodec)
 }

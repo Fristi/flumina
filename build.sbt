@@ -14,7 +14,8 @@ lazy val akka = project.in(file("akka"))
           version := "1.0",
           scalaVersion := "2.11.8",
           libraryDependencies ++= Seq(
-              "org.typelevel" %% "cats" % "0.6.0",
+              "com.lihaoyi" %% "pprint" % "0.4.1",
+              "org.typelevel" % "scala-reflect" % "2.11.7",
               "com.typesafe.akka" %% "akka-stream" % "2.4.8",
               "de.heikoseeberger" %% "akka-log4j" % "1.1.4",
               "org.apache.logging.log4j" % "log4j-core" % "2.6",

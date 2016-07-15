@@ -28,7 +28,7 @@ object Main extends App {
   val interleave = Flow[KafkaResponse]
     .collect { case u: KafkaResponse.Produce => u }
     .groupedWithin(Int.MaxValue, 1.second)
-    .scan(List.empty[Long]) { case (acc, resp) => resp.last.topics.head.partitions.head.offset +: acc}
+    .scan(List.empty[Long]) { case (acc, resp) => (resp.last.topics.head.partitions.head.offset +: acc).take(2) }
     .to(Sink.foreach(s => println(offsetDifference(s))))
     .async
 
@@ -51,12 +51,15 @@ object Main extends App {
 //  Kafka.listOffsets.onComplete(println)
 //  Kafka.metadata(Vector("test")).onComplete(println)
 //  Kafka.groupCoordinator("test").onComplete(println)
-  (for {
-    _ <- offsetCommit("test", Map(TopicPartition("test", 0) -> 22l))
-    offset <- offsetFetch("test", Set(TopicPartition("test", 0)))
-  } yield offset).onComplete(println)
+//  (for {
+//    metaData <- metadata(Vector.empty)
+//    _ <- offsetCommit("test", Map(TopicPartition("test", 0) -> 22l))
+//    offset <- offsetFetch("test", Set(TopicPartition("test", 0)))
+//  } yield metaData -> offset).onComplete(x => pprint.pprintln(x, 300))
 
-//  Kafka.joinGroup("test").onComplete(println)
+//  Kafka.groupCoordinator("test").onComplete(println)
+//  Kafka.joinGroup(System.nanoTime().toString).onComplete(println)
+  Kafka.heartbeat("test", 12, "test").onComplete(println)
 }
 
 

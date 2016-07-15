@@ -10,7 +10,6 @@ import vectos.kafka.types.v0.messages.{KafkaRequest, KafkaResponse, Message, Mes
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
-
 object Kafka {
 
   final case class TopicPartition(topic: String, partition: Int)
@@ -63,8 +62,10 @@ object Kafka {
     doRequest(KafkaRequest.OffsetCommit(Some(consumerGroup), Vector(OffsetCommitTopicRequest(Some("test"), Vector(OffsetCommitTopicPartitionRequest(0, 0l, Option("ja")))))))
 
   def joinGroup(group: String)(implicit ctx: Context) =
-    doRequest(KafkaRequest.JoinGroup(Some(group), 30000, None, Some("consumer"), Vector.empty))
+    doRequest(KafkaRequest.JoinGroup(Some(group), 30000, Some(""), Some("consumer"), Vector(JoinGroupProtocolRequest(Some("consumer"), "tst".getBytes.toVector))))
 
+  def heartbeat(group: String, generationId: Int, memberId: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.Heartbeat(Some(group), generationId, Some(memberId)))
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
              (implicit ctx: Context) = {

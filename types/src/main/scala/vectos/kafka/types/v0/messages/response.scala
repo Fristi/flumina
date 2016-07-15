@@ -17,6 +17,7 @@ object KafkaResponse {
   final case class OffsetFetch(topics: Vector[OffsetFetchTopicResponse]) extends KafkaResponse
   final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
   final case class JoinGroup(errorCode: KafkaError, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
+  final case class Heartbeat(errorCode: KafkaError) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
     ("topics" | kafkaArray(topic)).as[Produce]
@@ -48,6 +49,8 @@ object KafkaResponse {
       ("memberId" | kafkaString) ::
       ("members" | kafkaArray(member))
     ).as[JoinGroup]
+
+  def heartbeat(implicit kafkaError: Codec[KafkaError]): Codec[Heartbeat] = (("errorCode" | kafkaError)).as[Heartbeat]
 }
 
 case class ResponseEnvelope(correlationId: Int, response: BitVector)
