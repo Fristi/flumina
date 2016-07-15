@@ -3,14 +3,11 @@ package vectos.kafka.akkaimpl
 import akka.actor.ActorSystem
 import akka.routing.RoundRobinPool
 import akka.stream._
-import akka.stream.scaladsl.{Flow, Sink}
 import akka.util.Timeout
-
-import scala.concurrent.duration._
-import Kafka._
-import vectos.kafka.types.v0.KafkaResponse
+import vectos.kafka.akkaimpl.Kafka._
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 object Main extends App {
 

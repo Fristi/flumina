@@ -5,7 +5,6 @@ import akka.pattern.ask
 import akka.stream.scaladsl.Flow
 import akka.util.Timeout
 import vectos.kafka.types.v0._
-import vectos.kafka.types.v0.messages._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try

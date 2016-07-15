@@ -16,7 +16,8 @@ val scalacOpts = List(
   "-Yrangepos",
   "-Ywarn-dead-code",
   "-Ywarn-numeric-widen",
-  "-Ywarn-value-discard"
+  "-Ywarn-value-discard",
+  "-Ywarn-unused-import"
 )
 
 val commonSettings = Seq(

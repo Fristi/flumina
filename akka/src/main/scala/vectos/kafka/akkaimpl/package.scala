@@ -3,8 +3,6 @@ package vectos.kafka
 import akka.util.ByteString
 import scodec.bits.ByteVector
 
-import scala.language.implicitConversions
-
 package object akkaimpl {
 
   implicit class EnrichedByteString(val value: ByteString) extends AnyVal {
