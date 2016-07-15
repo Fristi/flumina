@@ -64,6 +64,15 @@ object Kafka {
   def joinGroup(group: String)(implicit ctx: Context) =
     doRequest(KafkaRequest.JoinGroup(Some(group), 30000, Some(""), Some("consumer"), Vector(JoinGroupProtocolRequest(Some("consumer"), "tst".getBytes.toVector))))
 
+  def leaveGroup(group: String, memberId: String)(implicit ctx: Context) =
+    doRequest(KafkaRequest.LeaveGroup(Some(group), Some(memberId)))
+
+  def listGroups(implicit ctx: Context) =
+    doRequest(KafkaRequest.ListGroups)
+
+  def describeGroups(groups: Set[String])(implicit ctx: Context) =
+    doRequest(KafkaRequest.DescribeGroups(groups.map(Some.apply).toVector))
+
   def heartbeat(group: String, generationId: Int, memberId: String)(implicit ctx: Context) =
     doRequest(KafkaRequest.Heartbeat(Some(group), generationId, Some(memberId)))
 

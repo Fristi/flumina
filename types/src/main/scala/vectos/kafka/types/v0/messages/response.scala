@@ -18,6 +18,9 @@ object KafkaResponse {
   final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
   final case class JoinGroup(errorCode: KafkaError, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
   final case class Heartbeat(errorCode: KafkaError) extends KafkaResponse
+  final case class LeaveGroup(errorCode: KafkaError) extends KafkaResponse
+  final case class ListGroups(errorCode: KafkaError, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse
+  final case class DescribeGroups(groups: Vector[DescribeGroupsGroupResponse]) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
     ("topics" | kafkaArray(topic)).as[Produce]
@@ -50,7 +53,17 @@ object KafkaResponse {
       ("members" | kafkaArray(member))
     ).as[JoinGroup]
 
-  def heartbeat(implicit kafkaError: Codec[KafkaError]): Codec[Heartbeat] = (("errorCode" | kafkaError)).as[Heartbeat]
+  def heartbeat(implicit kafkaError: Codec[KafkaError]): Codec[Heartbeat] =
+    ("errorCode" | kafkaError).as[Heartbeat]
+
+  def leaveGroup(implicit kafkaError: Codec[KafkaError]): Codec[LeaveGroup] =
+    ("errorCode" | kafkaError).as[LeaveGroup]
+
+  def listGroups(implicit kafkaError: Codec[KafkaError], group: Codec[ListGroupGroupResponse]): Codec[ListGroups] =
+    (("errorCode" | kafkaError) :: ("groups" | kafkaArray(group))).as[ListGroups]
+
+  def describeGroups(implicit group: Codec[DescribeGroupsGroupResponse]): Codec[DescribeGroups] =
+    ("groups" | kafkaArray(group)).as[DescribeGroups]
 }
 
 case class ResponseEnvelope(correlationId: Int, response: BitVector)

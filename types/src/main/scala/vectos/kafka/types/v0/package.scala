@@ -12,6 +12,8 @@ trait MessageTypes extends FetchTypes
   with OffsetFetchTypes
   with OffsetCommitTypes
   with JoinGroupTypes
+  with ListGroupsTypes
+  with DescribeGroupsTypes
 
 package object v0 extends MessageTypes {
 
@@ -30,10 +32,10 @@ package object v0 extends MessageTypes {
     case _ : KafkaRequest.GroupCoordinator => Attempt.successful(KafkaResponse.groupCoordinator.decodeValue)
     case _ : KafkaRequest.JoinGroup => Attempt.successful(KafkaResponse.joinGroup.decodeValue)
     case _ : KafkaRequest.Heartbeat => Attempt.successful(KafkaResponse.heartbeat.decodeValue)
-    //    case _ : KafkaRequest.LeaveGroup => Some(13)
+    case _ : KafkaRequest.LeaveGroup => Attempt.successful(KafkaResponse.leaveGroup.decodeValue)
     //    case _ : KafkaRequest.SyncGroup => Some(14)
-    //    case _ : KafkaRequest.DescribeGroups => Some(15)
-    //    case _ : KafkaRequest.ListGroups => Some(16)
+    case _ : KafkaRequest.DescribeGroups => Attempt.successful(KafkaResponse.describeGroups.decodeValue)
+    case KafkaRequest.ListGroups => Attempt.successful(KafkaResponse.listGroups.decodeValue)
     //    case _ : KafkaRequest.SaslHandshake => Some(17)
     //    case _ : KafkaRequest.ApiVersions => Some(18)
     case _ => Attempt.failure(Err("No response decoder defined!"))
@@ -53,10 +55,10 @@ package object v0 extends MessageTypes {
     case x : KafkaRequest.GroupCoordinator => KafkaRequest.groupCoordinator.encode(x).map(10 -> _)
     case x : KafkaRequest.JoinGroup => KafkaRequest.joinGroup.encode(x).map(11 -> _)
     case x : KafkaRequest.Heartbeat => KafkaRequest.heartbeat.encode(x).map(12 -> _)
-    //    case _ : KafkaRequest.LeaveGroup => Some(13)
+    case x : KafkaRequest.LeaveGroup => KafkaRequest.leaveGroup.encode(x).map(13 -> _)
     //    case _ : KafkaRequest.SyncGroup => Some(14)
-    //    case _ : KafkaRequest.DescribeGroups => Some(15)
-    //    case _ : KafkaRequest.ListGroups => Some(16)
+    case x : KafkaRequest.DescribeGroups => KafkaRequest.describeGroups.encode(x).map(15 -> _)
+    case KafkaRequest.ListGroups => KafkaRequest.listGroups.encode(KafkaRequest.ListGroups).map(16 -> _)
     //    case _ : KafkaRequest.SaslHandshake => Some(17)
     //    case _ : KafkaRequest.ApiVersions => Some(18)
     case _ => Attempt.failure(Err("No api-key found for this request"))

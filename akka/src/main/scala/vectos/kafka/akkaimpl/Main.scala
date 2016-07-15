@@ -59,7 +59,11 @@ object Main extends App {
 
 //  Kafka.groupCoordinator("test").onComplete(println)
 //  Kafka.joinGroup(System.nanoTime().toString).onComplete(println)
-  Kafka.heartbeat("test", 12, "test").onComplete(println)
+  (for {
+    groups <- listGroups
+    descriptions <- describeGroups(Set("60323645472995"))
+    resp <- leaveGroup("60323645472995", "scala-kafka-81f262a4-3811-4237-90af-b2748da88a31")
+  } yield resp).onComplete(println)
 }
 
 
