@@ -9,7 +9,7 @@ sealed trait KafkaResponse
 object KafkaResponse {
 
   final case class Produce(topics: Vector[ProduceTopicResponse]) extends KafkaResponse
-  final case class Fetch(throttleTime: Int, topics: Vector[FetchTopicResponse]) extends KafkaResponse
+  final case class Fetch(topics: Vector[FetchTopicResponse]) extends KafkaResponse
   final case class ListOffset(topics: Vector[ListOffsetTopicResponse]) extends KafkaResponse
   final case class Metadata(brokers: Vector[MetadataBrokerResponse], topicMetadata: Vector[MetadataTopicMetadataResponse]) extends KafkaResponse
   final case class OffsetCommit(topics: Vector[OffsetCommitTopicResponse]) extends KafkaResponse
@@ -25,7 +25,7 @@ object KafkaResponse {
     ("topics" | kafkaArray(topic)).as[Produce]
 
   def fetch(implicit topic: Codec[FetchTopicResponse]): Codec[Fetch] =
-    (("throttleTime" | int32) :: ("topics" | kafkaArray(topic))).as[Fetch]
+    ("topics" | kafkaArray(topic)).as[Fetch]
 
   def listOffset(implicit topic: Codec[ListOffsetTopicResponse]): Codec[ListOffset] =
     ("topics" | kafkaArray(topic)).as[ListOffset]
