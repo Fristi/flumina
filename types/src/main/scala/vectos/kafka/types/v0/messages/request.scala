@@ -66,15 +66,15 @@ object KafkaRequest {
 
 }
 
-case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: Option[String], request: BitVector)
+final case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: Option[String], request: BitVector)
 
 object RequestEnvelope {
-  implicit val codec = (
+  implicit val codec: Codec[RequestEnvelope] = (
     ("apiKey" | int16) ::
-      ("apiVersion" | int16) ::
-      ("correlationId" | int32) ::
-      ("clientId" | kafkaString) ::
-      ("request" | scodec.codecs.bits)
-    ).as[RequestEnvelope]
+    ("apiVersion" | int16) ::
+    ("correlationId" | int32) ::
+    ("clientId" | kafkaString) ::
+    ("request" | scodec.codecs.bits)
+  ).as[RequestEnvelope]
 }
 

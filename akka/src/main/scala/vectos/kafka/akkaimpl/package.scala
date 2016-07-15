@@ -19,8 +19,6 @@ package object akkaimpl {
     def updatedValue(key: K, default: => V)(update: V => V) =
       map.updated(key, update(map.getOrElse(key, default)))
 
-
-
-    def updateValues(update: V => V): Map[K, V] = map.map { case (k,v) => k -> update(v) }
+    def updateValues(update: V => V): Map[K, V] = map.map { case (k, v) => k -> update(v) }
   }
 }

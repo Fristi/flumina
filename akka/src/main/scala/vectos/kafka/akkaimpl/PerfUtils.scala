@@ -6,7 +6,6 @@ import scala.concurrent.duration._
 
 object PerfUtils {
 
-
   def sink[I](prefix: String) = {
     Flow[I]
       .batch(Long.MaxValue, _ => 0)((acc, _) => acc + 1)

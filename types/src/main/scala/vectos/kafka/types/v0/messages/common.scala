@@ -41,7 +41,7 @@ object KafkaError {
   case object GroupAuthorizationFailed extends KafkaError
   case object ClusterAuthorizationFailed extends KafkaError
 
-  implicit val codec = discriminated[KafkaError].by(int16)
+  implicit val codec: Codec[KafkaError] = discriminated[KafkaError].by(int16)
     .typecase(0, provide(NoError))
     .typecase(-1, provide(Unknown))
     .typecase(1, provide(OffsetOutOfRange))
@@ -77,29 +77,29 @@ object KafkaError {
 
 }
 
-
-case class Message(magicByte: Int, attributes: Int, key: Vector[Byte], value: Vector[Byte])
+final case class Message(magicByte: Int, attributes: Int, key: Vector[Byte], value: Vector[Byte])
 
 object Message {
 
-  implicit val codec = new Codec[Message] {
+  implicit val codec: Codec[Message] = new Codec[Message] {
     override def encode(value: Message): Attempt[BitVector] = for {
       magicByte <- int8.encode(value.magicByte)
       attributes <- int8.encode(value.attributes)
       key <- kafkaBytes.encode(value.key)
       value <- kafkaBytes.encode(value.value)
-      payload = magicByte ++ attributes ++ key ++ value
-    } yield crc.crc32(payload) ++ payload
+    } yield {
+      val payload = magicByte ++ attributes ++ key ++ value
+      crc.crc32(payload) ++ payload
+    }
 
     override def sizeBound: SizeBound = SizeBound.unknown
 
     override def decode(bits: BitVector): Attempt[DecodeResult[Message]] = {
       for {
         crcPayload <- fixedSizeBits(32, scodec.codecs.bits).decode(bits)
-        crcRemainder = crc.crc32(crcPayload.remainder)
 
-        _ <- if(crcPayload.value == crcRemainder) Attempt.successful(())
-        else Attempt.failure(Err(s"Payload checksum: ${crcPayload.value} is not equal to $crcRemainder"))
+        _ <- if (crcPayload.value == crc.crc32(crcPayload.remainder)) Attempt.successful(())
+        else Attempt.failure(Err(s"Payload checksum: ${crcPayload.value} is not equal to the calculated checksum"))
 
         magicByte <- int8.decode(crcPayload.remainder)
         attributes <- int8.decode(magicByte.remainder)
@@ -112,7 +112,7 @@ object Message {
   }
 }
 
-case class MessageSetEntry(offset: Long, message: Message)
+final case class MessageSetEntry(offset: Long, message: Message)
 
 object MessageSetEntry {
   implicit def messageSet(implicit message: Codec[Message]): Codec[MessageSetEntry] =

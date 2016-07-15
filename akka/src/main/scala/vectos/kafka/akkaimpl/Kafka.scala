@@ -5,7 +5,7 @@ import akka.pattern.ask
 import akka.stream.scaladsl.Flow
 import akka.util.Timeout
 import vectos.kafka.types.v0._
-import vectos.kafka.types.v0.messages.{KafkaRequest, KafkaResponse, Message, MessageSetEntry}
+import vectos.kafka.types.v0.messages._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
@@ -13,29 +13,30 @@ import scala.util.Try
 object Kafka {
 
   final case class TopicPartition(topic: String, partition: Int)
-  final case class Context(connection: ActorRef,
-                           requestTimeout: Timeout,
-                           executionContext: ExecutionContext)
+  final case class Context(
+    connection:       ActorRef,
+    requestTimeout:   Timeout,
+    executionContext: ExecutionContext
+  )
 
-  def produceSlidingFlow(buffer: Int = 100, parallelism: Int = 20)
-                        (implicit ctx: Context) = {
+  def produceSlidingFlow(buffer: Int, parallelism: Int)(implicit ctx: Context) = {
     Flow[(TopicPartition, (Array[Byte], Array[Byte]))]
-      .groupBy(maxSubstreams = 100, { case (tp, _) => tp } )
+      .groupBy(maxSubstreams = 100, { case (tp, _) => tp })
       .sliding(buffer)
       .mergeSubstreams
       .mapAsync(parallelism)(s =>
-        produce(s.foldLeft(Map.empty[TopicPartition, List[(Array[Byte], Array[Byte])]]) { case (acc, (tp, keyValue)) =>
-          acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
-        })
-      )
+        produce(s.foldLeft(Map.empty[TopicPartition, List[(Array[Byte], Array[Byte])]]) {
+          case (acc, (tp, keyValue)) =>
+            acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
+        }))
   }
 
-  def produceBatchFlow(buffer: Int = 100, parallelism: Int = 10)
-                      (implicit ctx: Context) = {
+  def produceBatchFlow(buffer: Long, parallelism: Int)(implicit ctx: Context) = {
     Flow[(TopicPartition, (Array[Byte], Array[Byte]))]
-      .groupBy(100, { case (tp, _) => tp } )
-      .batch(buffer, { case (tp, keyValue) => Map(tp -> List(keyValue)) }) { case (acc, (tp, keyValue)) =>
-        acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
+      .groupBy(100, { case (tp, _) => tp })
+      .batch(buffer, { case (tp, keyValue) => Map(tp -> List(keyValue)) }) {
+        case (acc, (tp, keyValue)) =>
+          acc.updatedValue(tp, List.empty)(_ ++ List(keyValue))
       }
       .mergeSubstreams
       .mapAsync(parallelism)(produce)
@@ -76,35 +77,38 @@ object Kafka {
   def heartbeat(group: String, generationId: Int, memberId: String)(implicit ctx: Context) =
     doRequest(KafkaRequest.Heartbeat(Some(group), generationId, Some(memberId)))
 
-  def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])
-             (implicit ctx: Context) = {
+  def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]])(implicit ctx: Context) = {
     val topics = values
-        .groupBy { case (tp, _) => tp.topic }
-          .map { case (topic, tpvalues) =>
-            ProduceTopicRequest(Some(topic), tpvalues.map { case (tp, keyValues) =>
-              val messages = keyValues.map { case (key, value) =>
-                MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = key.toVector, value = value.toVector))
+      .groupBy { case (tp, _) => tp.topic }
+      .map {
+        case (topic, tpvalues) =>
+          ProduceTopicRequest(Some(topic), tpvalues.map {
+            case (tp, keyValues) =>
+              val messages = keyValues.map {
+                case (key, value) =>
+                  MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = key.toVector, value = value.toVector))
               }
 
-              ProduceTopicPartitionRequest(tp.partition, messages.toVector) }.toVector)
-          }
-          .toVector
+              ProduceTopicPartitionRequest(tp.partition, messages.toVector)
+          }.toVector)
+      }
+      .toVector
 
     val request = KafkaRequest.Produce(acks = 1, timeout = 20000, topics = topics)
 
     doRequest(request)
-//      .flatMap {
-//        case u: KafkaResponse.Produce => Future.successful(u)
-//        case _ => Future.failed(new Exception("Wrong response type"))
-//      }
+    //      .flatMap {
+    //        case u: KafkaResponse.Produce => Future.successful(u)
+    //        case _ => Future.failed(new Exception("Wrong response type"))
+    //      }
   }
 
-  def fetch(topicPartitionOffsets: Map[TopicPartition, Int])
-           (implicit ctx: Context) = {
+  def fetch(topicPartitionOffsets: Map[TopicPartition, Long])(implicit ctx: Context) = {
     val topics = topicPartitionOffsets
       .groupBy { case (tp, _) => tp.topic }
-      .map { case (topic, tpo) =>
-        FetchTopicRequest(Some(topic), tpo.map { case (tp, offset) => FetchTopicPartitionRequest(tp.partition, offset, 8 * 1024) }.toVector)
+      .map {
+        case (topic, tpo) =>
+          FetchTopicRequest(Some(topic), tpo.map { case (tp, offset) => FetchTopicPartitionRequest(tp.partition, offset, 8 * 1024) }.toVector)
       }
       .toVector
 
@@ -116,15 +120,13 @@ object Kafka {
     )
 
     doRequest(request)
-//      .flatMap {
-//        case u: KafkaResponse.Fetch => Future.successful(u)
-//        case _ => Future.failed(new Exception("Wrong response type"))
-//      }
+    //      .flatMap {
+    //        case u: KafkaResponse.Fetch => Future.successful(u)
+    //        case _ => Future.failed(new Exception("Wrong response type"))
+    //      }
   }
 
-
-  private def doRequest(req: KafkaRequest)
-                       (implicit ctx: Context) =
+  private def doRequest(req: KafkaRequest)(implicit ctx: Context) =
     ctx.connection.ask(req)(ctx.requestTimeout).mapTo[Try[KafkaResponse]].flatMap(Future.fromTry)(ctx.executionContext)
 }
 

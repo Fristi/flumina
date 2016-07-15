@@ -66,8 +66,8 @@ object KafkaResponse {
     ("groups" | kafkaArray(group)).as[DescribeGroups]
 }
 
-case class ResponseEnvelope(correlationId: Int, response: BitVector)
+final case class ResponseEnvelope(correlationId: Int, response: BitVector)
 
 object ResponseEnvelope {
-  implicit val codec = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
+  implicit val codec: Codec[ResponseEnvelope] = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
 }

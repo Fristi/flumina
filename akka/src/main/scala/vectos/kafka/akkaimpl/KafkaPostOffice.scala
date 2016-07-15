@@ -16,6 +16,7 @@ class KafkaPostOffice extends GraphStage[BidiShape[(Int, KafkaRequest), RequestE
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic = new GraphStageLogic(shape) {
 
+    @SuppressWarnings(Array("org.wartremover.warts.Var"))
     private var correlationIdsInFlight = Map.empty[Int, BitVector => Attempt[KafkaResponse]]
 
     setHandler(o1, new OutHandler {
