@@ -7,7 +7,7 @@ import scodec.codecs._
 package object v0 {
 
   val kafkaString: Codec[Option[String]] = new KafkaStringCodec
-  val kafkaBytes: Codec[Vector[Byte]] = new KafkaBytes
+  val kafkaBytes: Codec[Vector[Byte]] = new KafkaBytesCodec
 
   def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] = vectorOfN(int32, valueCodec)
 

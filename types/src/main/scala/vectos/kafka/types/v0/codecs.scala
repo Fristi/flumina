@@ -20,7 +20,7 @@ private[v0] class KafkaStringCodec extends Codec[Option[String]] {
   override def sizeBound: SizeBound = codec.sizeBound
 }
 
-private[v0] class KafkaBytes extends Codec[Vector[Byte]] {
+private[v0] class KafkaBytesCodec extends Codec[Vector[Byte]] {
   val codec = vectorOfN(int32, byte)
 
   override def decode(bits: BitVector): Attempt[DecodeResult[Vector[Byte]]] = for {
