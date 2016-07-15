@@ -2,9 +2,14 @@ package vectos.kafka.types
 
 import scodec._
 import scodec.bits.BitVector
-import vectos.kafka.types.v0.messages._
+import scodec.codecs._
 
 package object v0 {
+
+  val kafkaString: Codec[Option[String]] = new KafkaStringCodec
+  val kafkaBytes: Codec[Vector[Byte]] = new KafkaBytes
+
+  def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] = vectorOfN(int32, valueCodec)
 
   def responseDecoder(f: KafkaRequest): Attempt[BitVector => Attempt[KafkaResponse]] = f match {
     case _: KafkaRequest.Produce          => Attempt.successful(KafkaResponse.produce.decodeValue)

@@ -1,10 +1,10 @@
-package vectos.kafka.types.v0.messages
+package vectos.kafka.types.v0
 
 import scodec.{Attempt, Codec, DecodeResult, SizeBound}
 import scodec.bits.BitVector
 import scodec.codecs._
 
-private[messages] class KafkaStringCodec extends Codec[Option[String]] {
+private[v0] class KafkaStringCodec extends Codec[Option[String]] {
   val codec = variableSizeBytes(int16, ascii)
 
   override def decode(bits: BitVector): Attempt[DecodeResult[Option[String]]] = for {
@@ -20,7 +20,7 @@ private[messages] class KafkaStringCodec extends Codec[Option[String]] {
   override def sizeBound: SizeBound = codec.sizeBound
 }
 
-private[messages] class KafkaBytes extends Codec[Vector[Byte]] {
+private[v0] class KafkaBytes extends Codec[Vector[Byte]] {
   val codec = vectorOfN(int32, byte)
 
   override def decode(bits: BitVector): Attempt[DecodeResult[Vector[Byte]]] = for {

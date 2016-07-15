@@ -1,9 +1,8 @@
-package vectos.kafka.types.v0.messages
+package vectos.kafka.types.v0
 
 import scodec._
 import scodec.bits._
 import scodec.codecs._
-import vectos.kafka.types.v0._
 
 sealed trait KafkaResponse
 

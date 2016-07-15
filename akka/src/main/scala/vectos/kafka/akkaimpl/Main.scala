@@ -5,10 +5,10 @@ import akka.routing.RoundRobinPool
 import akka.stream._
 import akka.stream.scaladsl.{Flow, Sink}
 import akka.util.Timeout
-import vectos.kafka.types.v0.messages.KafkaResponse
 
 import scala.concurrent.duration._
 import Kafka._
+import vectos.kafka.types.v0.KafkaResponse
 
 import scala.concurrent.ExecutionContext
 
