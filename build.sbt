@@ -1,4 +1,5 @@
 import com.typesafe.sbt.SbtScalariform.ScalariformKeys
+import scoverage.ScoverageKeys
 import sbt.Keys._
 
 val scalacOpts = List(
@@ -16,7 +17,6 @@ val scalacOpts = List(
   "-Yrangepos",
   "-Ywarn-dead-code",
   "-Ywarn-numeric-widen",
-  "-Ywarn-value-discard",
   "-Ywarn-unused-import"
 )
 
@@ -56,7 +56,10 @@ lazy val akka = project.in(file("akka"))
               "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
               "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
               "net.manub" %% "scalatest-embedded-kafka" % "0.6.1" % "test",
-              "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.8" % "test"
+              "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.8" % "test",
+              "com.ironcorelabs" %% "cats-scalatest" % "1.3.0" % "test"
           ),
+          coverageMinimum := 80,
+          coverageFailOnMinimum := false,
           addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
       ).dependsOn(types)

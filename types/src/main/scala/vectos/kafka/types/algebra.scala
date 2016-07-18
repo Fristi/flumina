@@ -8,7 +8,7 @@ trait KafkaAlg[F[_]] extends Monad[F] {
   def metadata(topics: Vector[String]): F[Metadata]
 
   def offsetFetch(consumerGroup: String, topicPartitions: Set[TopicPartition]): F[List[TopicPartitionResult[OffsetMetadata]]]
-  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, Long]): F[List[TopicPartitionResult[Unit]]]
+  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, OffsetMetadata]): F[List[TopicPartitionResult[Unit]]]
 
   def describeGroups(groupIds: Set[String]): F[List[Group]]
   def groupCoordinator(groupId: String): F[GroupCoordinator]

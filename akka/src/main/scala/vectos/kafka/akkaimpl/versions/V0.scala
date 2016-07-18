@@ -65,12 +65,12 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
-  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, Long]) = {
+  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
     val offsetTopics = offsets
       .groupBy { case (topicPartition, _) => topicPartition }
       .map {
         case (topicPartition, offset) =>
-          OffsetCommitTopicRequest(topic = Some(topicPartition.topic), partitions = offset.values.map(offset => OffsetCommitTopicPartitionRequest(topicPartition.partition, offset, None)).toVector)
+          OffsetCommitTopicRequest(topic = Some(topicPartition.topic), partitions = offset.values.map(om => OffsetCommitTopicPartitionRequest(topicPartition.partition, om.offset, om.metadata)).toVector)
       }
       .toVector
 
