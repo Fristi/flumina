@@ -2,12 +2,13 @@ package vectos.kafka.types.v0
 
 import scodec.Codec
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class FetchTopicPartitionRequest(partition: Int, fetchOffset: Long, maxBytes: Int)
 final case class FetchTopicRequest(topic: Option[String], partitions: Vector[FetchTopicPartitionRequest])
 
-final case class FetchTopicPartitionResponse(partition: Int, errorCode: KafkaError, highWaterMark: Long, messages: Vector[MessageSetEntry])
-final case class FetchTopicResponse(topic: Option[String], partitions: Vector[FetchTopicPartitionResponse])
+final case class FetchTopicPartitionResponse(partition: Int, kafkaResult: KafkaResult, highWaterMark: Long, messages: Vector[MessageSetEntry])
+final case class FetchTopicResponse(topicName: Option[String], partitions: Vector[FetchTopicPartitionResponse])
 
 object FetchTopicPartitionRequest {
   implicit def codec: Codec[FetchTopicPartitionRequest] =
@@ -20,10 +21,10 @@ object FetchTopicRequest {
 }
 
 object FetchTopicPartitionResponse {
-  implicit def codec(implicit messageSetEntry: Codec[MessageSetEntry], kafkaError: Codec[KafkaError]): Codec[FetchTopicPartitionResponse] =
+  implicit def codec(implicit messageSetEntry: Codec[MessageSetEntry], kafkaResult: Codec[KafkaResult]): Codec[FetchTopicPartitionResponse] =
     (
       ("partition" | int32) ::
-      ("errorCode" | kafkaError) ::
+      ("kafkaResult" | kafkaResult) ::
       ("highWaterMark" | int64) ::
       ("messages" | variableSizeBytes(int32, vector(messageSetEntry)))
     ).as[FetchTopicPartitionResponse]

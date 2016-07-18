@@ -2,21 +2,22 @@ package vectos.kafka.types.v0
 
 import scodec.Codec
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class MetadataBrokerResponse(nodeId: Int, host: Option[String], port: Int)
 
 final case class MetadataTopicPartitionMetadataResponse(
-  errorCode: KafkaError,
-  id:        Int,
-  leader:    Int,
-  replicas:  Vector[Int],
-  isr:       Vector[Int]
+  kafkaResult: KafkaResult,
+  id:          Int,
+  leader:      Int,
+  replicas:    Vector[Int],
+  isr:         Vector[Int]
 )
 
 final case class MetadataTopicMetadataResponse(
-  errorCode:         KafkaError,
-  name:              Option[String],
-  partitionMetaData: Vector[MetadataTopicPartitionMetadataResponse]
+  errorCode:  KafkaResult,
+  topicName:  Option[String],
+  partitions: Vector[MetadataTopicPartitionMetadataResponse]
 )
 
 object MetadataBrokerResponse {
@@ -25,8 +26,8 @@ object MetadataBrokerResponse {
 }
 
 object MetadataTopicPartitionMetadataResponse {
-  implicit def codec(implicit kafkaError: Codec[KafkaError]): Codec[MetadataTopicPartitionMetadataResponse] = (
-    ("errorCode" | kafkaError) ::
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult]): Codec[MetadataTopicPartitionMetadataResponse] = (
+    ("kafkaResult" | kafkaResult) ::
     ("id" | int32) ::
     ("leader" | int32) ::
     ("replicaes" | kafkaArray(int32)) ::
@@ -35,6 +36,6 @@ object MetadataTopicPartitionMetadataResponse {
 }
 
 object MetadataTopicMetadataResponse {
-  implicit def codec(implicit kafkaError: Codec[KafkaError], metadata: Codec[MetadataTopicPartitionMetadataResponse]): Codec[MetadataTopicMetadataResponse] =
-    (("errorCode" | kafkaError) :: ("name" | kafkaString) :: ("partitions" | kafkaArray(metadata))).as[MetadataTopicMetadataResponse]
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult], metadata: Codec[MetadataTopicPartitionMetadataResponse]): Codec[MetadataTopicMetadataResponse] =
+    (("kafkaResult" | kafkaResult) :: ("name" | kafkaString) :: ("partitions" | kafkaArray(metadata))).as[MetadataTopicMetadataResponse]
 }

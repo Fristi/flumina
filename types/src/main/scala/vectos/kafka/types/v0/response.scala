@@ -1,8 +1,8 @@
 package vectos.kafka.types.v0
 
 import scodec._
-import scodec.bits._
 import scodec.codecs._
+import vectos.kafka.types._
 
 sealed trait KafkaResponse
 
@@ -14,11 +14,11 @@ object KafkaResponse {
   final case class Metadata(brokers: Vector[MetadataBrokerResponse], topicMetadata: Vector[MetadataTopicMetadataResponse]) extends KafkaResponse
   final case class OffsetCommit(topics: Vector[OffsetCommitTopicResponse]) extends KafkaResponse
   final case class OffsetFetch(topics: Vector[OffsetFetchTopicResponse]) extends KafkaResponse
-  final case class GroupCoordinator(errorCode: KafkaError, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
-  final case class JoinGroup(errorCode: KafkaError, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
-  final case class Heartbeat(errorCode: KafkaError) extends KafkaResponse
-  final case class LeaveGroup(errorCode: KafkaError) extends KafkaResponse
-  final case class ListGroups(errorCode: KafkaError, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse
+  final case class GroupCoordinator(kafkaResult: KafkaResult, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
+  final case class JoinGroup(errorCode: KafkaResult, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
+  final case class Heartbeat(kafkaResult: KafkaResult) extends KafkaResponse
+  final case class LeaveGroup(kafkaResult: KafkaResult) extends KafkaResponse
+  final case class ListGroups(kafkaResult: KafkaResult, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse
   final case class DescribeGroups(groups: Vector[DescribeGroupsGroupResponse]) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
@@ -39,12 +39,12 @@ object KafkaResponse {
   def offsetFetch(implicit topic: Codec[OffsetFetchTopicResponse]): Codec[OffsetFetch] =
     ("topics" | kafkaArray(topic)).as[OffsetFetch]
 
-  def groupCoordinator(implicit kafkaError: Codec[KafkaError]): Codec[GroupCoordinator] =
-    (("errorCode" | kafkaError) :: ("coordinatorId" | int32) :: ("coordinatorHost" | kafkaString) :: ("coordinatorPort" | int32)).as[GroupCoordinator]
+  def groupCoordinator(implicit kafkaResult: Codec[KafkaResult]): Codec[GroupCoordinator] =
+    (("kafkaResult" | kafkaResult) :: ("coordinatorId" | int32) :: ("coordinatorHost" | kafkaString) :: ("coordinatorPort" | int32)).as[GroupCoordinator]
 
-  def joinGroup(implicit kafkaError: Codec[KafkaError], member: Codec[JoinGroupMemberResponse]): Codec[JoinGroup] =
+  def joinGroup(implicit kafkaResult: Codec[KafkaResult], member: Codec[JoinGroupMemberResponse]): Codec[JoinGroup] =
     (
-      ("errorCode" | kafkaError) ::
+      ("kafkaResult" | kafkaResult) ::
       ("generationId" | int32) ::
       ("groupProtocol" | kafkaString) ::
       ("leaderId" | kafkaString) ::
@@ -52,21 +52,15 @@ object KafkaResponse {
       ("members" | kafkaArray(member))
     ).as[JoinGroup]
 
-  def heartbeat(implicit kafkaError: Codec[KafkaError]): Codec[Heartbeat] =
-    ("errorCode" | kafkaError).as[Heartbeat]
+  def heartbeat(implicit kafkaResult: Codec[KafkaResult]): Codec[Heartbeat] =
+    ("kafkaResult" | kafkaResult).as[Heartbeat]
 
-  def leaveGroup(implicit kafkaError: Codec[KafkaError]): Codec[LeaveGroup] =
-    ("errorCode" | kafkaError).as[LeaveGroup]
+  def leaveGroup(implicit kafkaResult: Codec[KafkaResult]): Codec[LeaveGroup] =
+    ("kafkaResult" | kafkaResult).as[LeaveGroup]
 
-  def listGroups(implicit kafkaError: Codec[KafkaError], group: Codec[ListGroupGroupResponse]): Codec[ListGroups] =
-    (("errorCode" | kafkaError) :: ("groups" | kafkaArray(group))).as[ListGroups]
+  def listGroups(implicit kafkaResult: Codec[KafkaResult], group: Codec[ListGroupGroupResponse]): Codec[ListGroups] =
+    (("kafkaResult" | kafkaResult) :: ("groups" | kafkaArray(group))).as[ListGroups]
 
   def describeGroups(implicit group: Codec[DescribeGroupsGroupResponse]): Codec[DescribeGroups] =
     ("groups" | kafkaArray(group)).as[DescribeGroups]
-}
-
-final case class ResponseEnvelope(correlationId: Int, response: BitVector)
-
-object ResponseEnvelope {
-  implicit val codec: Codec[ResponseEnvelope] = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
 }

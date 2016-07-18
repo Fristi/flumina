@@ -2,11 +2,12 @@ package vectos.kafka.types.v0
 
 import scodec._
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class ListOffsetTopicPartitionRequest(partition: Int, time: Long, maxNumberOfOffsets: Int)
 final case class ListOffsetTopicRequest(topic: Option[String], partitions: Vector[ListOffsetTopicPartitionRequest])
-final case class ListOffsetTopicPartitionResponse(partition: Int, errorCode: KafkaError, offsets: Vector[Long])
-final case class ListOffsetTopicResponse(topic: Option[String], partitions: Vector[ListOffsetTopicPartitionResponse])
+final case class ListOffsetTopicPartitionResponse(partition: Int, kafkaResult: KafkaResult, offsets: Vector[Long])
+final case class ListOffsetTopicResponse(topicName: Option[String], partitions: Vector[ListOffsetTopicPartitionResponse])
 
 object ListOffsetTopicPartitionRequest {
   implicit def codec: Codec[ListOffsetTopicPartitionRequest] =
@@ -19,8 +20,8 @@ object ListOffsetTopicRequest {
 }
 
 object ListOffsetTopicPartitionResponse {
-  implicit def codec(implicit kafkaError: Codec[KafkaError]): Codec[ListOffsetTopicPartitionResponse] =
-    (("partition" | int32) :: ("errorCode" | kafkaError) :: ("offsets" | kafkaArray(int64))).as[ListOffsetTopicPartitionResponse]
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult]): Codec[ListOffsetTopicPartitionResponse] =
+    (("partition" | int32) :: ("kafkaResult" | kafkaResult) :: ("offsets" | kafkaArray(int64))).as[ListOffsetTopicPartitionResponse]
 }
 
 object ListOffsetTopicResponse {

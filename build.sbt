@@ -35,7 +35,11 @@ lazy val types = project.in(file("types"))
       .settings(commonSettings)
       .settings(
           name := "scala-kafka-types",
-          libraryDependencies ++= Seq("org.scodec" %% "scodec-core" % "1.9.0")
+          libraryDependencies ++= Seq(
+            "org.typelevel" %% "cats" % "0.6.1",
+            "org.scodec" %% "scodec-core" % "1.9.0"
+          ),
+          addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
       )
 
 lazy val akka = project.in(file("akka"))
@@ -53,8 +57,6 @@ lazy val akka = project.in(file("akka"))
               "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
               "net.manub" %% "scalatest-embedded-kafka" % "0.6.1" % "test",
               "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.8" % "test"
-          )
+          ),
+          addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
       ).dependsOn(types)
-
-
-

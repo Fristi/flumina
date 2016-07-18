@@ -2,6 +2,7 @@ package vectos.kafka.types.v0
 
 import scodec._
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class JoinGroupProtocolRequest(protocolName: Option[String], metadata: Vector[Byte])
 final case class JoinGroupMemberResponse(memberId: Option[String], metadata: Vector[Byte])

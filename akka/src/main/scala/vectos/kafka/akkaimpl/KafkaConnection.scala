@@ -7,7 +7,8 @@ import akka.util.ByteString
 import akka.pattern.pipe
 import akka.{Done, NotUsed}
 import scodec.Attempt
-import vectos.kafka.types.v0.{KafkaRequest, KafkaResponse, RequestEnvelope, ResponseEnvelope}
+import scodec.bits.BitVector
+import vectos.kafka.types._
 
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext
@@ -37,10 +38,9 @@ class KafkaConnection(settings: KafkaConnection.Settings) extends Actor with Act
   private var requests = Map.empty[Int, ActorRef]
 
   private val connection = Tcp().outgoingConnection(settings.host, settings.port).join(logging)
-  private val postOffice = BidiFlow.fromGraph(new KafkaPostOffice)
   private val frame = Framing.simpleFramingProtocol(Int.MaxValue - 4)
-  private val protocol = postOffice atop kafkaEnvelopes atop frame
-  private val queue = Source.queue[(Int, KafkaRequest)](bufferSize = settings.bufferSize, overflowStrategy = OverflowStrategy.fail)
+  private val protocol = kafkaEnvelopes atop frame
+  private val queue = Source.queue[RequestEnvelope](bufferSize = settings.bufferSize, overflowStrategy = OverflowStrategy.fail)
     .via(protocol.join(connection))
     .toMat(Sink.actorRef(context.self, Done))(Keep.left)
     .run()
@@ -59,15 +59,18 @@ class KafkaConnection(settings: KafkaConnection.Settings) extends Actor with Act
     case OfferRequest(QueueOfferResult.Failure(err), receiver) => receiver ! Failure(err)
     case OfferRequest(QueueOfferResult.QueueClosed, receiver)  => receiver ! Failure(new Exception("Queue was closed"))
 
-    case r: KafkaRequest =>
+    case r: KafkaConnection.Request =>
       val nextCorrelationId = nextId
       val receiver = sender()
       requests += nextCorrelationId -> receiver
-      val _ = queue.offer(nextCorrelationId -> r).map(s => OfferRequest(s, receiver)) pipeTo self
+      val _ = queue
+        .offer(RequestEnvelope(r.apiKey, r.version, nextCorrelationId, Some("scala-kafka"), r.requestPayload))
+        .map(s => OfferRequest(s, receiver))
+        .pipeTo(self)
 
-    case (correlationId: Int, response: KafkaResponse) =>
-      requests.get(correlationId).foreach(ref => ref ! Success(response))
-      requests -= correlationId
+    case r: ResponseEnvelope =>
+      requests.get(r.correlationId).foreach(ref => ref ! Success(r.response))
+      requests -= r.correlationId
   }
 
   private def attemptFlow[I, O](f: I => Attempt[O]) =
@@ -93,5 +96,7 @@ object KafkaConnection {
   def props(settings: Settings) = Props(new KafkaConnection(settings))
 
   final case class Settings(host: String, port: Int, bufferSize: Int)
+
+  final case class Request(apiKey: Int, version: Int, requestPayload: BitVector)
 
 }

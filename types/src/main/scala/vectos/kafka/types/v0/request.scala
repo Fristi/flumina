@@ -1,8 +1,8 @@
 package vectos.kafka.types.v0
 
 import scodec._
-import scodec.bits.BitVector
 import scodec.codecs._
+import vectos.kafka.types._
 
 sealed trait KafkaRequest
 
@@ -63,17 +63,5 @@ object KafkaRequest {
   def describeGroups: Codec[DescribeGroups] =
     ("groups" | kafkaArray(kafkaString)).as[DescribeGroups]
 
-}
-
-final case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: Int, clientId: Option[String], request: BitVector)
-
-object RequestEnvelope {
-  implicit val codec: Codec[RequestEnvelope] = (
-    ("apiKey" | int16) ::
-    ("apiVersion" | int16) ::
-    ("correlationId" | int32) ::
-    ("clientId" | kafkaString) ::
-    ("request" | scodec.codecs.bits)
-  ).as[RequestEnvelope]
 }
 

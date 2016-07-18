@@ -2,11 +2,12 @@ package vectos.kafka.types.v0
 
 import scodec.Codec
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class ProduceTopicPartitionRequest(partition: Int, messageSets: Vector[MessageSetEntry])
 final case class ProduceTopicRequest(topicName: Option[String], partitions: Vector[ProduceTopicPartitionRequest])
 
-final case class ProduceTopicPartitionResponse(partition: Int, errorCode: KafkaError, offset: Long)
+final case class ProduceTopicPartitionResponse(partition: Int, kafkaResult: KafkaResult, offset: Long)
 final case class ProduceTopicResponse(topicName: Option[String], partitions: Vector[ProduceTopicPartitionResponse])
 
 object ProduceTopicPartitionRequest {
@@ -20,8 +21,8 @@ object ProduceTopicRequest {
 }
 
 object ProduceTopicPartitionResponse {
-  implicit def codec(implicit kafkaError: Codec[KafkaError]): Codec[ProduceTopicPartitionResponse] =
-    (("partition" | int32) :: ("errorCode" | kafkaError) :: ("offset" | int64)).as[ProduceTopicPartitionResponse]
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult]): Codec[ProduceTopicPartitionResponse] =
+    (("partition" | int32) :: ("kafkaResult" | kafkaResult) :: ("offset" | int64)).as[ProduceTopicPartitionResponse]
 }
 
 object ProduceTopicResponse {

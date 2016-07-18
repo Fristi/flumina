@@ -2,6 +2,7 @@ package vectos.kafka.types.v0
 
 import scodec._
 import scodec.codecs._
+import vectos.kafka.types._
 
 final case class DescribeGroupsGroupMemberResponse(
   memberId:         Option[String],
@@ -12,7 +13,7 @@ final case class DescribeGroupsGroupMemberResponse(
 )
 
 final case class DescribeGroupsGroupResponse(
-  errorCode:    KafkaError,
+  errorCode:    KafkaResult,
   groupId:      Option[String],
   state:        Option[String],
   protocolType: Option[String],
@@ -31,8 +32,8 @@ object DescribeGroupsGroupMemberResponse {
 }
 
 object DescribeGroupsGroupResponse {
-  implicit def codec(implicit kafkaError: Codec[KafkaError], member: Codec[DescribeGroupsGroupMemberResponse]): Codec[DescribeGroupsGroupResponse] = (
-    ("errorCode" | kafkaError) ::
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult], member: Codec[DescribeGroupsGroupMemberResponse]): Codec[DescribeGroupsGroupResponse] = (
+    ("kafkaResult" | kafkaResult) ::
     ("groupId" | kafkaString) ::
     ("state" | kafkaString) ::
     ("protocolType" | kafkaString) ::
