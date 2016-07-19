@@ -1,20 +1,27 @@
 package vectos.kafka.akkaimpl
 
-import cats.Monad
-import cats.data.{Kleisli, Xor, XorT}
+import java.util.{Timer, TimerTask}
+
+import cats.data.{Kleisli, XorT}
 import scodec.Attempt
 import vectos.kafka.types.ir.KafkaError
 
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
+import scala.util.Try
 
 package object versions {
 
   type KafkaMonad[T] = XorT[Kleisli[Future, Kafka.Context, ?], KafkaError, T]
 
-  implicit class RichXorT[B](val xorT: XorT[Kleisli[Future, Kafka.Context, ?], KafkaError, B]) extends AnyVal {
-    @inline
-    def mapXor[C](f: B => Xor[KafkaError, C])(implicit M: Monad[Kleisli[Future, Kafka.Context, ?]]): XorT[Kleisli[Future, Kafka.Context, ?], KafkaError, C] =
-      xorT.flatMap(b => XorT.fromXor[Kleisli[Future, Kafka.Context, ?]].apply(f(b)))
+  protected[versions] def delay[T](delay: Long)(block: => T): Future[T] = {
+    val promise = Promise[T]()
+    val t = new Timer()
+    t.schedule(new TimerTask {
+      override def run(): Unit = {
+        val _ = promise.complete(Try(block))
+      }
+    }, delay)
+    promise.future
   }
 
   implicit class RichAttempt[A](val attempt: Attempt[A]) extends AnyVal {

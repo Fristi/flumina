@@ -15,7 +15,7 @@ import vectos.kafka.types.{KafkaAlg, kafka}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-abstract class KafkaProtocolTestStack extends TestKit(ActorSystem()) with WordSpecLike with BeforeAndAfter with BeforeAndAfterAll with ScalaFutures{
+abstract class KafkaProtocolTestStack extends TestKit(ActorSystem()) with WordSpecLike with BeforeAndAfter with BeforeAndAfterAll with ScalaFutures {
 
   val protocolVersion: Int
   val protocol: KafkaAlg[KafkaMonad]
@@ -34,7 +34,15 @@ abstract class KafkaProtocolTestStack extends TestKit(ActorSystem()) with WordSp
     lazy val topicPartition = TopicPartition(randomTopic, 0)
     lazy val context: Context = Context(
       connection = system.actorOf(KafkaConnection.props(KafkaConnection.Settings("localhost", 9999, 1000))),
-      requestTimeout = Timeout(10.seconds)
+      requestTimeout = Timeout(10.seconds),
+      settings = Kafka.Settings(
+        retryBackoffMs = 300,
+        retryMaxCount = 10,
+        fetchMaxBytes = 8 * 1024,
+        fetchMaxWaitTime = 20000,
+        produceTimeout = 20000,
+        groupSessionTimeout = 30000
+      )
     )
 
     def run[T](kafkaDsl: kafka.Dsl[T]) = kafkaDsl(protocol).value.run(context)

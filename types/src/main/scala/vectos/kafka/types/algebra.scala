@@ -12,7 +12,7 @@ trait KafkaAlg[F[_]] extends Monad[F] {
 
   def describeGroups(groupIds: Set[String]): F[List[Group]]
   def groupCoordinator(groupId: String): F[GroupCoordinator]
-  def joinGroup(groupId: String, protocol: String, protocols: Seq[JoinGroupProtocol]): F[JoinGroupResult]
+  def joinGroup(groupId: String, protocol: String, protocols: Seq[GroupProtocol]): F[JoinGroupResult]
   def leaveGroup(groupId: String, memberId: String): F[Unit]
   def heartbeat(groupId: String, generationId: Int, memberId: String): F[Unit]
   def listGroups: F[List[GroupInfo]]

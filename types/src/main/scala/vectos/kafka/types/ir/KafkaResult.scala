@@ -2,6 +2,7 @@ package vectos.kafka.types.ir
 
 import cats.data.Xor
 import vectos.kafka.types.KafkaResult
+import vectos.kafka.types.common.ConsumerProtocolMetadata
 
 sealed trait KafkaError
 
@@ -49,7 +50,7 @@ final case class GroupMember(
   assignment: Option[Vector[Byte]]
 )
 
-final case class JoinGroupProtocol(protocolName: String, metadata: Vector[Byte])
+final case class GroupProtocol(protocolName: String, protocolMetadata: Vector[ConsumerProtocolMetadata])
 
 final case class JoinGroupResult(generationId: Int, groupProtocol: String, leaderId: String, memberId: String, members: Seq[GroupMember])
 

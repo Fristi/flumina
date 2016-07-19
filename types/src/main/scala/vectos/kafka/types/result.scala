@@ -40,6 +40,20 @@ object KafkaResult {
   case object GroupAuthorizationFailed extends KafkaResult
   case object ClusterAuthorizationFailed extends KafkaResult
 
+  def isRetriable(result: KafkaResult) = result match {
+    case InvalidMessage |
+      UnknownTopicOrPartition |
+      LeaderNotAvailable |
+      NotLeaderForPartition |
+      RequestTimedOut |
+      OffsetsLoadInProgressCode |
+      ConsumerCoordinatorNotAvailableCode |
+      NotCoordinatorForConsumerCode |
+      NotEnoughReplicas |
+      NotEnoughReplicasAfterAppend => true
+    case _ => false
+  }
+
   implicit val codec: Codec[KafkaResult] = discriminated[KafkaResult].by(int16)
     .typecase(0, provide(NoError))
     .typecase(-1, provide(Unknown))

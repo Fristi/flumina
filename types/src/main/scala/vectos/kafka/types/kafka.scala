@@ -32,7 +32,7 @@ object kafka {
     override def apply[F[_]: KafkaAlg]: F[GroupCoordinator] = implicitly[KafkaAlg[F]].groupCoordinator(groupId)
   }
 
-  def joinGroup(groupId: String, protocol: String, protocols: Seq[JoinGroupProtocol]) = new Dsl[JoinGroupResult] {
+  def joinGroup(groupId: String, protocol: String, protocols: Seq[GroupProtocol]) = new Dsl[JoinGroupResult] {
     override def apply[F[_]: KafkaAlg]: F[JoinGroupResult] = implicitly[KafkaAlg[F]].joinGroup(groupId, protocol, protocols)
   }
 

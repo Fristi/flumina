@@ -1,50 +1,44 @@
 package vectos.kafka.akkaimpl
 
-import cats.syntax.all._
 import cats.scalatest._
+import cats.syntax.all._
 import org.scalatest.Matchers
-import vectos.kafka.types.ir.MessageEntry
-import vectos.kafka.types.kafka
+import vectos.kafka.types.common.ConsumerProtocolMetadata
+import vectos.kafka.types.ir._
+import vectos.kafka.types.{KafkaResult, kafka}
 
 abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers with XorMatchers with XorValues {
   s"Kafka: version protocol $protocolVersion" should {
     "metadata" in new KafkaScope {
       whenReady(run(kafka.metadata(Vector.empty))) { result =>
-        result should be(right)
+        val metadata = result.value
+
+        metadata.brokers should have size 1
+        metadata.brokers.head.nodeId shouldBe 0
+        metadata.brokers.head.host shouldBe "localhost"
+        metadata.brokers.head.port shouldBe 9999
       }
     }
-    //    "offsets" in new KafkaScope {
-    //      val group = randomGroup
-    //      val prg = for {
-    //        produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes)))
-    //        groupCoordinator <- kafka.groupCoordinator(group)
-    //        _ <- kafka.joinGroup(group, "consumer", Seq(JoinGroupProtocol("protocol", "test".getBytes.toVector)))
-    //        fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
-    //        offsetCommitResult <- kafka.offsetCommit(group, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
-    //        offsetFetchResult <- kafka.offsetFetch(group, Set(topicPartition))
-    //      } yield offsetCommitResult -> offsetFetchResult
-    //
-    //      whenReady(run(prg)) { result =>
-    //        val (offsetCommitResult, offsetFetchResult) = result.value
-    //
-    //      }
-    //    }
-
     "listOffsets" in new KafkaScope {
       whenReady(run(kafka.listOffsets(Set.empty))) { result =>
-        result should be(right)
+        result.value should have size 0
       }
     }
+
     "listGroups" in new KafkaScope {
       whenReady(run(kafka.listGroups)) { result =>
-        result should be(right)
+        result.value should have size 0
       }
     }
-    //    "groupCoordinator" in new KafkaScope {
-    //      whenReady(run(kafka.groupCoordinator("test"))) { result =>
-    //        result should be(right)
-    //      }
-    //    }
+    "groupCoordinator" in new KafkaScope {
+      whenReady(run(kafka.groupCoordinator("test"))) { result =>
+        val groupCoordinator = result.value
+
+        groupCoordinator.coordinatorId shouldBe 0
+        groupCoordinator.coordinatorHost shouldBe "localhost"
+        groupCoordinator.coordinatorPort shouldBe 9999
+      }
+    }
     "produce" in new KafkaScope {
       whenReady(run(kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes))))) { result =>
         val produceResult = result.value
@@ -72,6 +66,75 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         fetchResult.head.value.head shouldBe MessageEntry(0, "key".getBytes, "Hello world".getBytes)
       }
     }
-  }
 
+    "joinGroup" in new KafkaScope {
+      whenReady(run(kafka.joinGroup(groupId, "consumer", List(GroupProtocol("roundrobin", Vector(ConsumerProtocolMetadata(0, Vector(Some("test")), Vector.empty))))))) { result =>
+        val joinGroupResult = result.value
+
+        joinGroupResult.memberId should not be empty
+        joinGroupResult.groupProtocol should not be empty
+        joinGroupResult.leaderId should not be empty
+      }
+    }
+
+    "offsetCommit and offsetFetch" in  new KafkaScope {
+      val prg = for {
+        produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes, "key".getBytes -> "Hello world".getBytes)))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Vector(ConsumerProtocolMetadata(0, Vector(Some("test")), Vector.empty)))))
+        fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
+        offsetCommitResult <- kafka.offsetCommit(groupId, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
+        offsetFetchResult <- kafka.offsetFetch(groupId, Set(topicPartition))
+      } yield offsetCommitResult -> offsetFetchResult
+
+      whenReady(run(prg)) { result =>
+        val (offsetCommitResult, offsetFetchResult) = result.value
+
+        offsetCommitResult should have size 1
+        offsetFetchResult should have size 1
+        offsetFetchResult.head.kafkaResult shouldBe KafkaResult.NoError
+        offsetFetchResult.head.topicPartition shouldBe topicPartition
+        offsetFetchResult.head.value.offset shouldBe 1
+      }
+    }
+
+    "describeGroups" in new KafkaScope {
+      val prg = for {
+        _ <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Vector(ConsumerProtocolMetadata(0, Vector(Some("test")), Vector.empty)))))
+        describeGroupResult <- kafka.describeGroups(Set(groupId))
+      } yield describeGroupResult
+
+      whenReady(run(prg)) { result =>
+        val describeGroupResult = result.value
+
+        describeGroupResult should have size 1
+        describeGroupResult.head.errorCode shouldBe KafkaResult.NoError
+        describeGroupResult.head.groupId should not be empty
+        describeGroupResult.head.state should not be empty
+        describeGroupResult.head.protocolType should not be empty
+        describeGroupResult.head.members should not be empty
+      }
+    }
+
+    "leaveGroup" in new KafkaScope {
+      val prg = for {
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Vector(ConsumerProtocolMetadata(0, Vector(Some("test")), Vector.empty)))))
+        leaveGroupResult <- kafka.leaveGroup(groupId, joinGroupResult.memberId)
+      } yield leaveGroupResult
+
+      whenReady(run(prg)) { result =>
+        result should be(right)
+      }
+    }
+
+    "heartbeat" in new KafkaScope {
+      val prg = for {
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Vector(ConsumerProtocolMetadata(0, Vector(Some("test")), Vector.empty)))))
+        heartbeatResult <- kafka.heartbeat(groupId, joinGroupResult.generationId, joinGroupResult.memberId)
+      } yield heartbeatResult
+
+      whenReady(run(prg)) { result =>
+        result should be(left) //TODO: rebalance in progress??,, should it delay??
+      }
+    }
+  }
 }
