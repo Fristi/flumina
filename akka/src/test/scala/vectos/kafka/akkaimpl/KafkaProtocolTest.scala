@@ -2,33 +2,13 @@ package vectos.kafka.akkaimpl
 
 import cats.scalatest._
 import cats.syntax.all._
-import org.scalatest.Matchers
+import org.scalatest.{Matchers, OptionValues}
 import vectos.kafka.types.ir._
 import vectos.kafka.types.{KafkaResult, kafka}
 
-abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers with XorMatchers with XorValues {
+abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers with XorMatchers with XorValues with OptionValues {
   s"Kafka: version protocol $protocolVersion" should {
-    "metadata" in new KafkaScope {
-      whenReady(run(kafka.metadata(Vector.empty))) { result =>
-        val metadata = result.value
 
-        metadata.brokers should have size 1
-        metadata.brokers.head.nodeId shouldBe 0
-        metadata.brokers.head.host shouldBe "localhost"
-        metadata.brokers.head.port shouldBe 9999
-      }
-    }
-    "listOffsets" in new KafkaScope {
-      whenReady(run(kafka.listOffsets(Set.empty))) { result =>
-        result.value should have size 0
-      }
-    }
-
-    "listGroups" in new KafkaScope {
-      whenReady(run(kafka.listGroups)) { result =>
-        result.value should have size 0
-      }
-    }
     "groupCoordinator" in new KafkaScope {
       whenReady(run(kafka.groupCoordinator("test"))) { result =>
         val groupCoordinator = result.value
@@ -67,7 +47,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
     }
 
     "joinGroup" in new KafkaScope {
-      whenReady(run(kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Array.empty))))))) { result =>
+      whenReady(run(kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Seq.empty))))))) { result =>
         val joinGroupResult = result.value
 
         joinGroupResult.memberId should not be empty
@@ -82,7 +62,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
     "offsetCommit and offsetFetch" in new KafkaScope {
       val prg = for {
         produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes, "key".getBytes -> "Hello world".getBytes)))
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Array.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Seq.empty)))))
         fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
         offsetCommitResult <- kafka.offsetCommit(groupId, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
         offsetFetchResult <- kafka.offsetFetch(groupId, Set(topicPartition))
@@ -99,27 +79,80 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
       }
     }
 
-    "describeGroups" in new KafkaScope {
+    "describeGroups with syncGroup call" in new KafkaScope {
+      val memberAssignment = MemberAssignment(
+        version = 0,
+        topicPartition = Seq(MemberAssignmentTopicPartition(topicName = "test", partitions = Seq(0))),
+        userData = "more-test".getBytes
+      )
+
+      val consumerProtocolMetadata = ConsumerProtocolMetadata(0, Seq("test"), "test".getBytes)
+
       val prg = for {
-        _ <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Array.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata))))
+        _ <- kafka.syncGroup(
+          groupId = groupId,
+          generationId = joinGroupResult.generationId,
+          memberId = joinGroupResult.memberId,
+          assignments = Seq(
+            GroupAssignment(
+              memberId = joinGroupResult.memberId,
+              memberAssignment = memberAssignment
+            )
+          )
+        )
         describeGroupResult <- kafka.describeGroups(Set(groupId))
-      } yield describeGroupResult
+      } yield joinGroupResult -> describeGroupResult
 
       whenReady(run(prg)) { result =>
-        val describeGroupResult = result.value
+        val (joinGroupResult, describeGroupResult) = result.value
 
         describeGroupResult should have size 1
         describeGroupResult.head.errorCode shouldBe KafkaResult.NoError
-        describeGroupResult.head.groupId should not be empty
-        describeGroupResult.head.state should not be empty
+        describeGroupResult.head.groupId shouldBe groupId
+        describeGroupResult.head.state shouldBe "Stable"
         describeGroupResult.head.protocolType should not be empty
-        describeGroupResult.head.members should not be empty
+        describeGroupResult.head.members should have size 1
+        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
+        describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
+        describeGroupResult.head.members.head.consumerProtocolMetadata shouldBe Some(consumerProtocolMetadata)
+        describeGroupResult.head.members.head.assignment shouldBe Some(memberAssignment)
+      }
+    }
+
+    "describeGroups without syncGroup call" in new KafkaScope {
+      val memberAssignment = MemberAssignment(
+        version = 0,
+        topicPartition = Seq(MemberAssignmentTopicPartition(topicName = "test", partitions = Seq(0))),
+        userData = "more-test".getBytes
+      )
+
+      val consumerProtocolMetadata = ConsumerProtocolMetadata(0, Seq("test"), "test".getBytes)
+
+      val prg = for {
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata))))
+        describeGroupResult <- kafka.describeGroups(Set(groupId))
+      } yield joinGroupResult -> describeGroupResult
+
+      whenReady(run(prg)) { result =>
+        val (joinGroupResult, describeGroupResult) = result.value
+
+        describeGroupResult should have size 1
+        describeGroupResult.head.errorCode shouldBe KafkaResult.NoError
+        describeGroupResult.head.groupId shouldBe groupId
+        describeGroupResult.head.state shouldBe "AwaitingSync"
+        describeGroupResult.head.protocolType should not be empty
+        describeGroupResult.head.members should have size 1
+        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
+        describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
+        describeGroupResult.head.members.head.consumerProtocolMetadata shouldBe None
+        describeGroupResult.head.members.head.assignment shouldBe None
       }
     }
 
     "leaveGroup" in new KafkaScope {
       val prg = for {
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Array.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Seq.empty)))))
         leaveGroupResult <- kafka.leaveGroup(groupId, joinGroupResult.memberId)
       } yield leaveGroupResult
 
@@ -130,7 +163,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
 
     "heartbeat" in new KafkaScope {
       val prg = for {
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Array.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Seq.empty)))))
         heartbeatResult <- kafka.heartbeat(groupId, joinGroupResult.generationId, joinGroupResult.memberId)
       } yield heartbeatResult
 
@@ -166,6 +199,42 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         syncGroupResult.topicPartition should have size 1
         syncGroupResult.topicPartition.head shouldBe MemberAssignmentTopicPartition("test", Seq(0))
         syncGroupResult.userData shouldBe "more-test".getBytes
+      }
+    }
+
+    "metadata" in new KafkaScope {
+      whenReady(run(kafka.metadata(Vector.empty))) { result =>
+        val metadata = result.value
+
+        metadata.brokers should have size 1
+        metadata.brokers.head.nodeId shouldBe 0
+        metadata.brokers.head.host shouldBe "localhost"
+        metadata.brokers.head.port shouldBe 9999
+
+        metadata.metadata shouldNot have size 0
+      }
+    }
+
+    "listOffsets" in new KafkaScope {
+      val prg = for {
+        produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes, "key".getBytes -> "Hello world".getBytes)))
+        fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
+        offsetCommitResult <- kafka.offsetCommit(groupId, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
+        listOffsetResult <- kafka.listOffsets(Set(topicPartition))
+      } yield listOffsetResult
+
+      whenReady(run(prg)) { result =>
+        val listOffsetResult = result.value
+        listOffsetResult should have size 1
+        listOffsetResult.head.value shouldBe Vector(2)
+        listOffsetResult.head.topicPartition shouldBe topicPartition
+        listOffsetResult.head.kafkaResult shouldBe KafkaResult.NoError
+      }
+    }
+
+    "listGroups" in new KafkaScope {
+      whenReady(run(kafka.listGroups)) { result =>
+        result.value shouldNot have size 0
       }
     }
   }

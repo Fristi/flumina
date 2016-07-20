@@ -13,7 +13,7 @@ object KafkaError {
   final case class CodecError(err: Err) extends KafkaError
 }
 
-object KafkaResultList {
+object KafkaList {
   def lift[T](x: Xor[KafkaError, T]): ListT[Xor[KafkaError, ?], T] =
     ListT.lift[Xor[KafkaError, ?], T](x)
 
@@ -49,11 +49,11 @@ final case class TopicInfo(leader: Int, replicas: Seq[Int], isr: Seq[Int])
 final case class Metadata(brokers: Seq[Broker], metadata: Seq[TopicPartitionResult[TopicInfo]])
 
 final case class GroupMember(
-  memberId:   String,
-  metadata:   Vector[Byte],
-  clientId:   Option[String],
-  clientHost: Option[String],
-  assignment: Option[Vector[Byte]]
+  memberId:                 String,
+  clientId:                 Option[String],
+  clientHost:               Option[String],
+  consumerProtocolMetadata: Option[ConsumerProtocolMetadata],
+  assignment:               Option[MemberAssignment]
 )
 
 final case class GroupProtocol(protocolName: String, protocolMetadata: Seq[ConsumerProtocolMetadata])
@@ -75,6 +75,6 @@ final case class MemberAssignmentTopicPartition(topicName: String, partitions: S
 
 final case class GroupAssignment(memberId: String, memberAssignment: MemberAssignment)
 
-final case class MemberAssignment(version: Int, topicPartition: Seq[MemberAssignmentTopicPartition], userData: Array[Byte])
+final case class MemberAssignment(version: Int, topicPartition: Seq[MemberAssignmentTopicPartition], userData: Seq[Byte])
 
-final case class ConsumerProtocolMetadata(version: Int, subscriptions: Seq[String], userData: Array[Byte])
+final case class ConsumerProtocolMetadata(version: Int, subscriptions: Seq[String], userData: Seq[Byte])

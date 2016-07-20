@@ -14,7 +14,7 @@ private[types] class KafkaStringCodec extends Codec[Option[String]] {
   } yield str
   override def encode(value: Option[String]): Attempt[BitVector] = value match {
     case Some(str) => codec.encode(str)
-    case None      => Attempt.successful(BitVector(-1))
+    case None      => int16.encode(-1)
   }
 
   override def sizeBound: SizeBound = codec.sizeBound
@@ -30,7 +30,7 @@ private[types] class KafkaBytesCodec extends Codec[Vector[Byte]] {
   } yield xs
 
   override def encode(value: Vector[Byte]): Attempt[BitVector] =
-    if (value.isEmpty) Attempt.successful(BitVector(-1))
+    if (value.isEmpty) int32.encode(-1)
     else codec.encode(value)
 
   override def sizeBound: SizeBound = codec.sizeBound

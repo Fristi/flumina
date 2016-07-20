@@ -53,9 +53,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
     doRequest(_ => KafkaRequest.ListOffset(replicaId = -1, topics = topicPartitions)) {
       case KafkaResponse.ListOffset(topicOffsets) => (for {
-        topicOffset <- KafkaResultList.fromList(topicOffsets)
-        topic <- KafkaResultList.fromOption(topicOffset.topicName, KafkaError.MissingInfo("topicName is missing!"))
-        partition <- KafkaResultList.fromList(topicOffset.partitions)
+        topicOffset <- KafkaList.fromList(topicOffsets)
+        topic <- KafkaList.fromOption(topicOffset.topicName, KafkaError.MissingInfo("topicName is missing!"))
+        partition <- KafkaList.fromList(topicOffset.partitions)
       } yield TopicPartitionResult(TopicPartition(topic, partition.partition), partition.kafkaResult, partition.offsets)).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -64,9 +64,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
   def offsetFetch(consumerGroup: String, topicPartitions: Set[TopicPartition]) =
     doRequest(_ => KafkaRequest.OffsetFetch(Some(consumerGroup), topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(Some(topic), tp.map(_.partition).toVector) }.toVector)) {
       case KafkaResponse.OffsetFetch(topics) => (for {
-        topic <- KafkaResultList.fromList(topics)
-        topicName <- KafkaResultList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
-        partition <- KafkaResultList.fromList(topic.partitions)
+        topic <- KafkaList.fromList(topics)
+        topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
+        partition <- KafkaList.fromList(topic.partitions)
       } yield TopicPartitionResult(TopicPartition(topicName, partition.partition), partition.kafkaResult, OffsetMetadata(partition.offset, partition.metadata))).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -90,9 +90,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
     doRequest(_ => KafkaRequest.OffsetCommit(Some(consumerGroup), offsetTopics)) {
       case KafkaResponse.OffsetCommit(topics) => (for {
-        topic <- KafkaResultList.fromList(topics)
-        topicName <- KafkaResultList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
-        partition <- KafkaResultList.fromList(topic.partitions)
+        topic <- KafkaList.fromList(topics)
+        topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
+        partition <- KafkaList.fromList(topic.partitions)
       } yield TopicPartitionResult(TopicPartition(topicName, partition.partition), partition.kafkaResult, ())).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -103,9 +103,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       case KafkaResponse.ListGroups(errorCode, groups) =>
         if (errorCode == KafkaResult.NoError) {
           (for {
-            group <- KafkaResultList.fromList(groups)
-            groupId <- KafkaResultList.fromOption(group.groupId, KafkaError.MissingInfo("groupId is missing!"))
-            protocolType <- KafkaResultList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
+            group <- KafkaList.fromList(groups)
+            groupId <- KafkaList.fromOption(group.groupId, KafkaError.MissingInfo("groupId is missing!"))
+            protocolType <- KafkaList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
           } yield GroupInfo(groupId, protocolType)).run
         } else {
           Xor.left(KafkaError.Error(errorCode))
@@ -115,19 +115,14 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
   def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) = {
     def makeAssignmentRequest = (for {
-      assignment <- KafkaResultList.fromList(assignments)
+      assignment <- KafkaList.fromList(assignments)
       data = MemberAssignmentData(
         version = assignment.memberAssignment.version,
         topicPartition = assignment.memberAssignment.topicPartition.map(y => MemberAssignmentTopicPartitionData(Some(y.topicName), y.partitions.toVector)).toVector,
         userData = assignment.memberAssignment.userData.toVector
       )
-      assignmentData <- KafkaResultList.fromAttempt(MemberAssignmentData.codec.encode(data))
+      assignmentData <- KafkaList.fromAttempt(MemberAssignmentData.codec.encode(data))
     } yield SyncGroupGroupAssignmentRequest(Some(assignment.memberId), assignmentData.toByteArray.toVector)).run
-
-    def extractMemberAssignmentTopicPartition(memberAssignmentTopicPartitions: Seq[MemberAssignmentTopicPartitionData]) = (for {
-      matp <- KafkaResultList.fromList(memberAssignmentTopicPartitions)
-      topicName <- KafkaResultList.fromOption(matp.topicName, KafkaError.MissingInfo("topicName is missing!"))
-    } yield MemberAssignmentTopicPartition(topicName, matp.partitions)).run
 
     for {
       assignmentRequest <- KafkaMonad.fromXor(makeAssignmentRequest)
@@ -135,9 +130,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
         case KafkaResponse.SyncGroup(result, assignmentData) =>
           if (result == KafkaResult.NoError) {
             for {
-              ma <- MemberAssignmentData.codec.decodeValue(BitVector(assignmentData)).toXor
-              matps <- extractMemberAssignmentTopicPartition(ma.topicPartition)
-            } yield MemberAssignment(ma.version, matps, ma.userData.toArray)
+              memberAssignmentData <- MemberAssignmentData.codec.decodeValue(BitVector(assignmentData)).toXor
+              memberAssignment <- extractMemberAssignment(memberAssignmentData)
+            } yield memberAssignment
           } else {
             Xor.left(KafkaError.Error(result))
           }
@@ -164,9 +159,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     doRequest(makeRequest) {
       case KafkaResponse.Fetch(topics) =>
         (for {
-          topic <- KafkaResultList.fromList(topics)
-          topicName <- KafkaResultList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
-          partition <- KafkaResultList.fromList(topic.partitions)
+          topic <- KafkaList.fromList(topics)
+          topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
+          partition <- KafkaList.fromList(topic.partitions)
         } yield {
           val topicPartition = TopicPartition(topicName, partition.partition)
           val messages = partition.messages.map(x => MessageEntry(x.offset, x.message.key, x.message.value)).toList
@@ -181,14 +176,14 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     doRequest(_ => KafkaRequest.Metadata(topics.map(Some.apply))) {
       case u: KafkaResponse.Metadata =>
         val brokers = for {
-          broker <- KafkaResultList.fromList(u.brokers)
-          brokerHost <- KafkaResultList.fromOption(broker.host, KafkaError.MissingInfo("host is missing!"))
+          broker <- KafkaList.fromList(u.brokers)
+          brokerHost <- KafkaList.fromOption(broker.host, KafkaError.MissingInfo("host is missing!"))
         } yield Broker(broker.nodeId, brokerHost, broker.port)
 
         val topicMetadata = for {
-          topicMetadata <- KafkaResultList.fromList(u.topicMetadata)
-          topicName <- KafkaResultList.fromOption(topicMetadata.topicName, KafkaError.MissingInfo("topicName is missing!"))
-          partition <- KafkaResultList.fromList(topicMetadata.partitions)
+          topicMetadata <- KafkaList.fromList(u.topicMetadata)
+          topicName <- KafkaList.fromOption(topicMetadata.topicName, KafkaError.MissingInfo("topicName is missing!"))
+          partition <- KafkaList.fromList(topicMetadata.partitions)
         } yield TopicPartitionResult(TopicPartition(topicName, partition.id), partition.kafkaResult, TopicInfo(partition.leader, partition.replicas, partition.isr))
 
         (brokers.run |@| topicMetadata.run).map(Metadata.apply)
@@ -200,14 +195,14 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
     def makeGroupProtocolRequest = KafkaMonad.fromXor {
       (for {
-        protocol <- KafkaResultList.fromList(protocols)
-        protocolMetadata <- KafkaResultList.fromList(protocol.protocolMetadata)
+        protocol <- KafkaList.fromList(protocols)
+        protocolMetadata <- KafkaList.fromList(protocol.protocolMetadata)
         data = ConsumerProtocolMetadataData(
           version = protocolMetadata.version,
           subscriptions = protocolMetadata.subscriptions.map(Some.apply).toVector,
           userData = protocolMetadata.userData.toVector
         )
-        metaDataBitVector <- KafkaResultList.fromAttempt(ConsumerProtocolMetadataData.codec.encode(data))
+        metaDataBitVector <- KafkaList.fromAttempt(ConsumerProtocolMetadataData.codec.encode(data))
       } yield JoinGroupProtocolRequest(Some(protocol.protocolName), metaDataBitVector.toByteArray.toVector)).run
     }
 
@@ -215,7 +210,8 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       KafkaRequest.JoinGroup(
         groupId = Some(groupId),
         sessionTimeOut = ctx.settings.groupSessionTimeout,
-        memberId = Some(""), protocolType = Some(protocol),
+        memberId = Some(""),
+        protocolType = Some(protocol),
         groupProtocols = groupProtocols
       )
 
@@ -224,9 +220,11 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       response <- doRequest(makeRequest(groupProtocolRequests.toVector)) {
         case u: KafkaResponse.JoinGroup =>
           def extractMembers(members: Seq[JoinGroupMemberResponse]) = (for {
-            group <- KafkaResultList.fromList(members)
-            memberId <- KafkaResultList.fromOption(group.memberId, KafkaError.MissingInfo("memberId is missing!"))
-          } yield GroupMember(memberId, group.metadata, None, None, None)).run
+            group <- KafkaList.fromList(members)
+            memberId <- KafkaList.fromOption(group.memberId, KafkaError.MissingInfo("memberId is missing!"))
+            protocolMetadata <- KafkaList.fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(BitVector(group.metadata)))
+            consumerProtocolMetadata <- KafkaList.lift(extractConsumerProtocolMetadataData(protocolMetadata))
+          } yield GroupMember(memberId, None, None, Some(consumerProtocolMetadata), None)).run
 
           if (u.errorCode == KafkaResult.NoError) {
             for {
@@ -267,9 +265,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
     doRequest(makeRequest) {
       case KafkaResponse.Produce(topics) => (for {
-        topic <- KafkaResultList.fromList(topics)
-        topicName <- KafkaResultList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
-        partition <- KafkaResultList.fromList(topic.partitions)
+        topic <- KafkaList.fromList(topics)
+        topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
+        partition <- KafkaList.fromList(topic.partitions)
       } yield TopicPartitionResult(TopicPartition(topicName, partition.partition), partition.kafkaResult, partition.offset)).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -278,18 +276,38 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
   def describeGroups(groupIds: Set[String]) =
     doRequest(_ => KafkaRequest.DescribeGroups(groupIds.map(Some.apply).toVector)) {
       case KafkaResponse.DescribeGroups(groups) =>
-        def groupMembers(members: Seq[DescribeGroupsGroupMemberResponse]) = (for {
-          member <- KafkaResultList.fromList(members)
-          memberId <- KafkaResultList.fromOption(member.memberId, KafkaError.MissingInfo("memberId is missing!"))
-        } yield GroupMember(memberId, member.memberMetadata, member.clientId, member.clientHost, Some(member.memberAssignment))).run
+        def groupMembers(members: Seq[DescribeGroupsGroupMemberResponse]) = {
+          (for {
+            member <- KafkaList.fromList(members)
+            memberId <- KafkaList.fromOption(member.memberId, KafkaError.MissingInfo("memberId is missing!"))
+            protocolMetadata <- if (member.memberMetadata.nonEmpty) {
+              for {
+                protocolMetadata <- KafkaList.fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(BitVector(member.memberMetadata)))
+                consumerProtocolMetadata <- KafkaList.lift(extractConsumerProtocolMetadataData(protocolMetadata))
+              } yield Some(consumerProtocolMetadata)
+            } else {
+              KafkaList.lift(Xor.right(None))
+            }
+
+            assignment <- if (member.memberAssignment.nonEmpty) {
+              for {
+                memberAssignmentData <- KafkaList.fromAttempt(MemberAssignmentData.codec.decodeValue(BitVector(member.memberAssignment)))
+                memberAssignment <- KafkaList.lift(extractMemberAssignment(memberAssignmentData))
+              } yield Some(memberAssignment)
+            } else {
+              KafkaList.lift(Xor.right(None))
+            }
+
+          } yield GroupMember(memberId, member.clientId, member.clientHost, protocolMetadata, assignment)).run
+        }
 
         (for {
-          group <- KafkaResultList.fromList(groups)
-          groupName <- KafkaResultList.fromOption(group.groupId, KafkaError.MissingInfo("groupId is missing!"))
-          state <- KafkaResultList.fromOption(group.state, KafkaError.MissingInfo("state is missing!"))
-          protocolType <- KafkaResultList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
-          protocol <- KafkaResultList.fromOption(group.protocol, KafkaError.MissingInfo("protocol is missing!"))
-          members <- KafkaResultList.lift(groupMembers(group.members))
+          group <- KafkaList.fromList(groups)
+          groupName <- KafkaList.fromOption(group.groupId, KafkaError.MissingInfo("groupId is missing!"))
+          state <- KafkaList.fromOption(group.state, KafkaError.MissingInfo("state is missing!"))
+          protocolType <- KafkaList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
+          protocol <- KafkaList.fromOption(group.protocol, KafkaError.MissingInfo("protocol is missing!"))
+          members <- KafkaList.lift(groupMembers(group.members))
         } yield Group(group.errorCode, groupName, state, protocolType, protocol, members)).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -318,4 +336,24 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     XorT.right[Kleisli[Future, Kafka.Context, ?], KafkaError, A](Kleisli.pure[Future, Kafka.Context, A](x))
 
   def flatMap[A, B](fa: KafkaMonad[A])(f: (A) => KafkaMonad[B]): KafkaMonad[B] = fa.flatMap(f)
+
+  private def extractMemberAssignment(data: MemberAssignmentData) = {
+    def extractMemberAssignmentTopicPartition(memberAssignmentTopicPartitions: Seq[MemberAssignmentTopicPartitionData]) = (for {
+      matp <- KafkaList.fromList(memberAssignmentTopicPartitions)
+      topicName <- KafkaList.fromOption(matp.topicName, KafkaError.MissingInfo("topicName is missing!"))
+    } yield MemberAssignmentTopicPartition(topicName, matp.partitions)).run
+
+    for {
+      matps <- extractMemberAssignmentTopicPartition(data.topicPartition)
+    } yield MemberAssignment(data.version, matps, data.userData)
+  }
+
+  private def extractConsumerProtocolMetadataData(data: ConsumerProtocolMetadataData) = {
+    val subscriptions = (for {
+      subscription <- KafkaList.fromList(data.subscriptions)
+      subscriptionName <- KafkaList.fromOption(subscription, KafkaError.MissingInfo("subscription is missing!"))
+    } yield subscriptionName).run
+
+    subscriptions.map(subs => ConsumerProtocolMetadata(data.version, subs, data.userData))
+  }
 }
