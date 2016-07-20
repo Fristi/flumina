@@ -20,6 +20,7 @@ object KafkaRequest {
   final case class LeaveGroup(groupId: Option[String], memberId: Option[String]) extends KafkaRequest
   final case object ListGroups extends KafkaRequest
   final case class DescribeGroups(groupIds: Vector[Option[String]]) extends KafkaRequest
+  final case class SyncGroup(groupId: Option[String], generationId: Int, memberId: Option[String], groupAssignment: Vector[SyncGroupGroupAssignmentRequest]) extends KafkaRequest
 
   def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
     (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
@@ -62,6 +63,14 @@ object KafkaRequest {
 
   def describeGroups: Codec[DescribeGroups] =
     ("groups" | kafkaArray(kafkaString)).as[DescribeGroups]
+
+  def syncGroup(implicit assignment: Codec[SyncGroupGroupAssignmentRequest]): Codec[SyncGroup] =
+    (
+      ("groupId" | kafkaString) ::
+      ("generationId" | int32) ::
+      ("memberId" | kafkaString) ::
+      ("groupAssignment" | kafkaArray(assignment))
+    ).as[SyncGroup]
 
 }
 

@@ -20,6 +20,7 @@ object KafkaResponse {
   final case class LeaveGroup(kafkaResult: KafkaResult) extends KafkaResponse
   final case class ListGroups(kafkaResult: KafkaResult, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse
   final case class DescribeGroups(groups: Vector[DescribeGroupsGroupResponse]) extends KafkaResponse
+  final case class SyncGroup(result: KafkaResult, bytes: Vector[Byte]) extends KafkaResponse
 
   def produce(implicit topic: Codec[ProduceTopicResponse]): Codec[Produce] =
     ("topics" | kafkaArray(topic)).as[Produce]
@@ -63,4 +64,7 @@ object KafkaResponse {
 
   def describeGroups(implicit group: Codec[DescribeGroupsGroupResponse]): Codec[DescribeGroups] =
     ("groups" | kafkaArray(group)).as[DescribeGroups]
+
+  def syncGroup(implicit kafkaResult: Codec[KafkaResult], assignment: Codec[MemberAssignmentData]): Codec[SyncGroup] =
+    (("kafkaResult" | kafkaResult) :: ("assignment" | kafkaBytes)).as[SyncGroup]
 }

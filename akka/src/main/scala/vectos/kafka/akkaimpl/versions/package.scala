@@ -2,7 +2,7 @@ package vectos.kafka.akkaimpl
 
 import java.util.{Timer, TimerTask}
 
-import cats.data.{Kleisli, XorT}
+import cats.data.{Kleisli, Xor, XorT}
 import scodec.Attempt
 import vectos.kafka.types.ir.KafkaError
 
@@ -24,10 +24,15 @@ package object versions {
     promise.future
   }
 
-  implicit class RichAttempt[A](val attempt: Attempt[A]) extends AnyVal {
+  protected[versions] implicit class RichAttempt[A](val attempt: Attempt[A]) extends AnyVal {
     def toFuture: Future[A] = attempt match {
       case Attempt.Successful(s) => Future.successful(s)
       case Attempt.Failure(err)  => Future.failed(new Exception(err.messageWithContext))
+    }
+
+    def toXor: Xor[KafkaError, A] = attempt match {
+      case Attempt.Successful(value) => Xor.right(value)
+      case Attempt.Failure(err)      => Xor.left(KafkaError.CodecError(err))
     }
   }
 }

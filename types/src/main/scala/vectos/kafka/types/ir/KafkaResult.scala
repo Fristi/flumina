@@ -1,8 +1,8 @@
 package vectos.kafka.types.ir
 
 import cats.data.Xor
+import scodec.{Attempt, Err}
 import vectos.kafka.types.KafkaResult
-import vectos.kafka.types.common.ConsumerProtocolMetadata
 
 sealed trait KafkaError
 
@@ -10,11 +10,17 @@ object KafkaError {
   case object OtherResponseTypeExpected extends KafkaError
   final case class Error(kafkaResult: KafkaResult) extends KafkaError
   final case class MissingInfo(message: String) extends KafkaError
+  final case class CodecError(err: Err) extends KafkaError
 }
 
 object KafkaResultList {
   def lift[T](x: Xor[KafkaError, T]): ListT[Xor[KafkaError, ?], T] =
     ListT.lift[Xor[KafkaError, ?], T](x)
+
+  def fromAttempt[T](a: Attempt[T]): ListT[Xor[KafkaError, ?], T] = a match {
+    case Attempt.Failure(err)      => ListT.lift[Xor[KafkaError, ?], T](Xor.left(KafkaError.CodecError(err)))
+    case Attempt.Successful(value) => ListT.lift[Xor[KafkaError, ?], T](Xor.right(value))
+  }
 
   def fromList[T](xs: Seq[T]): ListT[Xor[KafkaError, ?], T] =
     ListT.hoist[Xor[KafkaError, ?], T](xs.toList)
@@ -50,7 +56,7 @@ final case class GroupMember(
   assignment: Option[Vector[Byte]]
 )
 
-final case class GroupProtocol(protocolName: String, protocolMetadata: Vector[ConsumerProtocolMetadata])
+final case class GroupProtocol(protocolName: String, protocolMetadata: Seq[ConsumerProtocolMetadata])
 
 final case class JoinGroupResult(generationId: Int, groupProtocol: String, leaderId: String, memberId: String, members: Seq[GroupMember])
 
@@ -64,3 +70,11 @@ final case class Group(
   protocol:     String,
   members:      Seq[GroupMember]
 )
+
+final case class MemberAssignmentTopicPartition(topicName: String, partitions: Seq[Int])
+
+final case class GroupAssignment(memberId: String, memberAssignment: MemberAssignment)
+
+final case class MemberAssignment(version: Int, topicPartition: Seq[MemberAssignmentTopicPartition], userData: Array[Byte])
+
+final case class ConsumerProtocolMetadata(version: Int, subscriptions: Seq[String], userData: Array[Byte])

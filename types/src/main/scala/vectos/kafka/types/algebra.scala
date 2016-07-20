@@ -16,6 +16,7 @@ trait KafkaAlg[F[_]] extends Monad[F] {
   def leaveGroup(groupId: String, memberId: String): F[Unit]
   def heartbeat(groupId: String, generationId: Int, memberId: String): F[Unit]
   def listGroups: F[List[GroupInfo]]
+  def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]): F[MemberAssignment]
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]]): F[List[TopicPartitionResult[Long]]]
   def fetch(topicPartitionOffsets: Map[TopicPartition, Long]): F[List[TopicPartitionResult[List[MessageEntry]]]]

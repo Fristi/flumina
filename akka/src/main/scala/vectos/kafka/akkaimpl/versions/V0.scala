@@ -14,8 +14,9 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
 final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[KafkaMonad] {
-  private def doRequest[A](g: Kafka.Context => KafkaRequest)(f: KafkaResponse => Xor[KafkaError, A]): XorT[Kleisli[Future, Kafka.Context, ?], KafkaError, A] = {
-    def run(retries: Int): KafkaMonad[A] = XorT[Kleisli[Future, Kafka.Context, ?], KafkaError, A](Kleisli { ctx =>
+
+  private def doRequest[A](g: Kafka.Context => KafkaRequest)(f: KafkaResponse => Xor[KafkaError, A]): KafkaMonad[A] = {
+    def run(retries: Int): KafkaMonad[A] = KafkaMonad.fromFutureXor { ctx =>
       val req = g(ctx)
 
       for {
@@ -36,7 +37,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
         }
 
       } yield result
-    })
+    }
 
     run(0)
   }
@@ -112,6 +113,39 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
+  def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) = {
+    def makeAssignmentRequest = (for {
+      assignment <- KafkaResultList.fromList(assignments)
+      data = MemberAssignmentData(
+        version = assignment.memberAssignment.version,
+        topicPartition = assignment.memberAssignment.topicPartition.map(y => MemberAssignmentTopicPartitionData(Some(y.topicName), y.partitions.toVector)).toVector,
+        userData = assignment.memberAssignment.userData.toVector
+      )
+      assignmentData <- KafkaResultList.fromAttempt(MemberAssignmentData.codec.encode(data))
+    } yield SyncGroupGroupAssignmentRequest(Some(assignment.memberId), assignmentData.toByteArray.toVector)).run
+
+    def extractMemberAssignmentTopicPartition(memberAssignmentTopicPartitions: Seq[MemberAssignmentTopicPartitionData]) = (for {
+      matp <- KafkaResultList.fromList(memberAssignmentTopicPartitions)
+      topicName <- KafkaResultList.fromOption(matp.topicName, KafkaError.MissingInfo("topicName is missing!"))
+    } yield MemberAssignmentTopicPartition(topicName, matp.partitions)).run
+
+    for {
+      assignmentRequest <- KafkaMonad.fromXor(makeAssignmentRequest)
+      response <- doRequest(_ => KafkaRequest.SyncGroup(Some(groupId), generationId, Some(memberId), assignmentRequest.toVector)) {
+        case KafkaResponse.SyncGroup(result, assignmentData) =>
+          if (result == KafkaResult.NoError) {
+            for {
+              ma <- MemberAssignmentData.codec.decodeValue(BitVector(assignmentData)).toXor
+              matps <- extractMemberAssignmentTopicPartition(ma.topicPartition)
+            } yield MemberAssignment(ma.version, matps, ma.userData.toArray)
+          } else {
+            Xor.left(KafkaError.Error(result))
+          }
+        case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
+      }
+    } yield response
+  }
+
   def fetch(topicPartitionOffsets: Map[TopicPartition, Long]) = {
     def makeRequest(ctx: Kafka.Context) = KafkaRequest.Fetch(
       replicaId = -1,
@@ -163,28 +197,51 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     }
 
   def joinGroup(groupId: String, protocol: String, protocols: Seq[GroupProtocol]) = {
-    def makeRequest(ctx: Kafka.Context) =
-      KafkaRequest.JoinGroup(Some(groupId), ctx.settings.groupSessionTimeout, Some(""), Some(protocol), protocols.map(x => JoinGroupProtocolRequest(Some(x.protocolName), x.protocolMetadata)).toVector)
 
-    doRequest(makeRequest) {
-      case u: KafkaResponse.JoinGroup =>
-        def extractMembers(members: Seq[JoinGroupMemberResponse]) = (for {
-          group <- KafkaResultList.fromList(members)
-          memberId <- KafkaResultList.fromOption(group.memberId, KafkaError.MissingInfo("memberId is missing!"))
-        } yield GroupMember(memberId, group.metadata, None, None, None)).run
-
-        if (u.errorCode == KafkaResult.NoError) {
-          for {
-            memberId <- Xor.fromOption(u.memberId, KafkaError.MissingInfo("memberId is missing"))
-            groupProtocol <- Xor.fromOption(u.groupProtocol, KafkaError.MissingInfo("groupProtocol is missing"))
-            leaderId <- Xor.fromOption(u.leaderId, KafkaError.MissingInfo("leaderId is missing"))
-            members <- extractMembers(u.members)
-          } yield JoinGroupResult(u.generationId, groupProtocol, leaderId, memberId, members)
-        } else {
-          Xor.left(KafkaError.Error(u.errorCode))
-        }
-      case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
+    def makeGroupProtocolRequest = KafkaMonad.fromXor {
+      (for {
+        protocol <- KafkaResultList.fromList(protocols)
+        protocolMetadata <- KafkaResultList.fromList(protocol.protocolMetadata)
+        data = ConsumerProtocolMetadataData(
+          version = protocolMetadata.version,
+          subscriptions = protocolMetadata.subscriptions.map(Some.apply).toVector,
+          userData = protocolMetadata.userData.toVector
+        )
+        metaDataBitVector <- KafkaResultList.fromAttempt(ConsumerProtocolMetadataData.codec.encode(data))
+      } yield JoinGroupProtocolRequest(Some(protocol.protocolName), metaDataBitVector.toByteArray.toVector)).run
     }
+
+    def makeRequest(groupProtocols: Vector[JoinGroupProtocolRequest])(ctx: Kafka.Context) =
+      KafkaRequest.JoinGroup(
+        groupId = Some(groupId),
+        sessionTimeOut = ctx.settings.groupSessionTimeout,
+        memberId = Some(""), protocolType = Some(protocol),
+        groupProtocols = groupProtocols
+      )
+
+    for {
+      groupProtocolRequests <- makeGroupProtocolRequest
+      response <- doRequest(makeRequest(groupProtocolRequests.toVector)) {
+        case u: KafkaResponse.JoinGroup =>
+          def extractMembers(members: Seq[JoinGroupMemberResponse]) = (for {
+            group <- KafkaResultList.fromList(members)
+            memberId <- KafkaResultList.fromOption(group.memberId, KafkaError.MissingInfo("memberId is missing!"))
+          } yield GroupMember(memberId, group.metadata, None, None, None)).run
+
+          if (u.errorCode == KafkaResult.NoError) {
+            for {
+              memberId <- Xor.fromOption(u.memberId, KafkaError.MissingInfo("memberId is missing"))
+              groupProtocol <- Xor.fromOption(u.groupProtocol, KafkaError.MissingInfo("groupProtocol is missing"))
+              leaderId <- Xor.fromOption(u.leaderId, KafkaError.MissingInfo("leaderId is missing"))
+              members <- extractMembers(u.members)
+            } yield JoinGroupResult(u.generationId, groupProtocol, leaderId, memberId, members)
+          } else {
+            Xor.left(KafkaError.Error(u.errorCode))
+          }
+        case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
+      }
+    } yield response
+
   }
 
   def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]]) = {

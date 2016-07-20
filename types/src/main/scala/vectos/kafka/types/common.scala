@@ -87,5 +87,23 @@ object KafkaResult {
     .typecase(29, provide(TopicAuthorizationFailed))
     .typecase(30, provide(GroupAuthorizationFailed))
     .typecase(31, provide(ClusterAuthorizationFailed))
+}
 
+final case class ConsumerProtocolMetadataData(version: Int, subscriptions: Vector[Option[String]], userData: Vector[Byte])
+final case class MemberAssignmentTopicPartitionData(topicName: Option[String], partitions: Vector[Int])
+final case class MemberAssignmentData(version: Int, topicPartition: Vector[MemberAssignmentTopicPartitionData], userData: Vector[Byte])
+
+object ConsumerProtocolMetadataData {
+  implicit val codec: Codec[ConsumerProtocolMetadataData] =
+    (("version" | int16) :: ("subscriptions" | kafkaArray(kafkaString)) :: ("userData" | kafkaBytes)).as[ConsumerProtocolMetadataData]
+}
+
+object MemberAssignmentTopicPartitionData {
+  implicit val codec: Codec[MemberAssignmentTopicPartitionData] =
+    (("topicName" | kafkaString) :: ("partition" | kafkaArray(int32))).as[MemberAssignmentTopicPartitionData]
+}
+
+object MemberAssignmentData {
+  implicit def codec(implicit topicPartition: Codec[MemberAssignmentTopicPartitionData]): Codec[MemberAssignmentData] =
+    (("version" | int32) :: ("partitions" | kafkaArray(topicPartition)) :: ("userData" | kafkaBytes)).as[MemberAssignmentData]
 }

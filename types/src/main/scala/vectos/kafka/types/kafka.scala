@@ -36,6 +36,10 @@ object kafka {
     override def apply[F[_]: KafkaAlg]: F[JoinGroupResult] = implicitly[KafkaAlg[F]].joinGroup(groupId, protocol, protocols)
   }
 
+  def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) = new Dsl[MemberAssignment] {
+    override def apply[F[_]: KafkaAlg]: F[MemberAssignment] = implicitly[KafkaAlg[F]].syncGroup(groupId, generationId, memberId, assignments)
+  }
+
   def leaveGroup(groupId: String, memberId: String) = new Dsl[Unit] {
     override def apply[F[_]: KafkaAlg]: F[Unit] = implicitly[KafkaAlg[F]].leaveGroup(groupId, memberId)
   }

@@ -23,7 +23,7 @@ class KafkaConnection(settings: KafkaConnection.Settings) extends Actor with Act
   val logging: BidiFlow[ByteString, ByteString, ByteString, ByteString, NotUsed] = {
     // function that takes a string, prints it with some fixed prefix in front and returns the string again
     def logger(prefix: String) = Flow[ByteString].map { chunk =>
-      log.debug(s"$prefix size: ${chunk.size} bytes -> ${chunk.toByteVector.toHex}")
+      log.info(s"$prefix size: ${chunk.size} bytes -> ${chunk.toByteVector.toHex}")
       chunk
     }
 
