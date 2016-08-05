@@ -1,5 +1,7 @@
 package vectos.kafka.types.ir
 
+import java.nio.charset.Charset
+
 import cats.data.Xor
 import scodec.{Attempt, Err}
 import vectos.kafka.types.KafkaResult
@@ -32,9 +34,32 @@ object KafkaList {
     ListT.filter[Xor[KafkaError, ?], T](ls.toList)(f)
 }
 
-final case class MessageEntry(offset: Long, key: Seq[Byte], value: Seq[Byte])
+final case class Record(key: Seq[Byte], value: Seq[Byte])
+
+object Record {
+  def fromByteValue(value: Seq[Byte]): Record =
+    Record(Seq.empty, value)
+
+  def fromStringKeyValue(key: String, value: String, charSet: Charset): Record =
+    Record(key.getBytes(charSet), value.getBytes(charSet))
+
+  def fromStringValue(value: String, charSet: Charset): Record =
+    Record(Seq.empty, value.getBytes(charSet))
+
+  def fromUtf8StringKeyValue(key: String, value: String): Record =
+    Record.fromStringKeyValue(key, value, Charset.forName("utf8"))
+
+  def fromUtf8StringValue(value: String): Record =
+    Record.fromStringValue(value, Charset.forName("utf8"))
+}
+
+final case class RecordEntry(offset: Long, record: Record)
 
 final case class TopicPartition(topic: String, partition: Int)
+
+object TopicPartition {
+  def enumerate(name: String, nrPartitions: Int) = (0 until nrPartitions).map(x => TopicPartition(name, x)).toSet
+}
 
 final case class TopicPartitionResult[T](topicPartition: TopicPartition, kafkaResult: KafkaResult, value: T)
 
@@ -49,21 +74,19 @@ final case class TopicInfo(leader: Int, replicas: Seq[Int], isr: Seq[Int])
 final case class Metadata(brokers: Seq[Broker], metadata: Seq[TopicPartitionResult[TopicInfo]])
 
 final case class GroupMember(
-  memberId:                 String,
-  clientId:                 Option[String],
-  clientHost:               Option[String],
-  consumerProtocolMetadata: Option[ConsumerProtocolMetadata],
-  assignment:               Option[MemberAssignment]
+  memberId:         String,
+  clientId:         Option[String],
+  clientHost:       Option[String],
+  consumerProtocol: Option[ConsumerProtocol],
+  assignment:       Option[MemberAssignment]
 )
 
-final case class GroupProtocol(protocolName: String, protocolMetadata: Seq[ConsumerProtocolMetadata])
+final case class GroupProtocol(protocolName: String, consumerProtocol: Seq[ConsumerProtocol])
 
 final case class JoinGroupResult(generationId: Int, groupProtocol: String, leaderId: String, memberId: String, members: Seq[GroupMember])
 
-final case class GroupCoordinator(coordinatorId: Int, coordinatorHost: String, coordinatorPort: Int)
-
 final case class Group(
-  errorCode:    KafkaResult,
+  kafkaResult:  KafkaResult,
   groupId:      String,
   state:        String,
   protocolType: String,
@@ -71,10 +94,8 @@ final case class Group(
   members:      Seq[GroupMember]
 )
 
-final case class MemberAssignmentTopicPartition(topicName: String, partitions: Seq[Int])
-
 final case class GroupAssignment(memberId: String, memberAssignment: MemberAssignment)
 
-final case class MemberAssignment(version: Int, topicPartition: Seq[MemberAssignmentTopicPartition], userData: Seq[Byte])
+final case class MemberAssignment(version: Int, topicPartitions: Seq[TopicPartition], userData: Seq[Byte])
 
-final case class ConsumerProtocolMetadata(version: Int, subscriptions: Seq[String], userData: Seq[Byte])
+final case class ConsumerProtocol(version: Int, subscriptions: Seq[String], userData: Seq[Byte])

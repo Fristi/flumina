@@ -1,25 +1,32 @@
 package vectos.kafka.akkaimpl
 
+import akka.actor.ActorSystem
+import akka.testkit.TestKit
+import akka.util.Timeout
 import cats.scalatest._
 import cats.syntax.all._
-import org.scalatest.{Matchers, OptionValues}
+import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.{Matchers, OptionValues, WordSpecLike}
+import vectos.kafka.akkaimpl.versions.KafkaMonad
 import vectos.kafka.types.ir._
-import vectos.kafka.types.{KafkaResult, kafka}
+import vectos.kafka.types.{KafkaAlg, KafkaResult, kafka}
 
-abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers with XorMatchers with XorValues with OptionValues {
-  s"Kafka: version protocol $protocolVersion" should {
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext
+
+abstract class KafkaProtocolTest extends TestKit(ActorSystem()) with WordSpecLike with ScalaFutures with KafkaDockerTest with Matchers with XorMatchers with XorValues with OptionValues {
+  s"Kafka" should {
 
     "groupCoordinator" in new KafkaScope {
       whenReady(run(kafka.groupCoordinator("test"))) { result =>
         val groupCoordinator = result.value
 
-        groupCoordinator.coordinatorId shouldBe 0
-        groupCoordinator.coordinatorHost shouldBe "localhost"
-        groupCoordinator.coordinatorPort shouldBe 9999
+        groupCoordinator.nodeId shouldBe 1001
+        groupCoordinator.port shouldBe kafkaPort
       }
     }
     "produce" in new KafkaScope {
-      whenReady(run(kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes))))) { result =>
+      whenReady(run(kafka.produce(Map(topicPartition -> List(Record.fromUtf8StringKeyValue("key", "Hello world")))))) { result =>
         val produceResult = result.value
 
         produceResult should have size 1
@@ -31,7 +38,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
 
     "fetch" in new KafkaScope {
       val prg = for {
-        _ <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes)))
+        _ <- kafka.produce(Map(topicPartition -> List(Record.fromUtf8StringKeyValue("key", "Hello world"))))
         fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
       } yield fetchResult
 
@@ -42,12 +49,12 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         fetchResult.containsError shouldBe false
         fetchResult.head.topicPartition shouldBe topicPartition
         fetchResult.head.value should have size 1
-        fetchResult.head.value.head shouldBe MessageEntry(0, "key".getBytes, "Hello world".getBytes)
+        fetchResult.head.value.head shouldBe RecordEntry(0, Record.fromUtf8StringKeyValue("key", "Hello world"))
       }
     }
 
     "joinGroup" in new KafkaScope {
-      whenReady(run(kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Seq.empty))))))) { result =>
+      whenReady(run(kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), Seq.empty))))))) { result =>
         val joinGroupResult = result.value
 
         joinGroupResult.memberId should not be empty
@@ -61,8 +68,8 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
 
     "offsetCommit and offsetFetch" in new KafkaScope {
       val prg = for {
-        produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes, "key".getBytes -> "Hello world".getBytes)))
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Vector("test"), Seq.empty)))))
+        produceResult <- kafka.produce(Map(topicPartition -> List(Record.fromUtf8StringValue("Hello world"), Record.fromUtf8StringValue("Hello world"))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), Seq.empty)))))
         fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
         offsetCommitResult <- kafka.offsetCommit(groupId, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
         offsetFetchResult <- kafka.offsetFetch(groupId, Set(topicPartition))
@@ -82,11 +89,11 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
     "describeGroups with syncGroup call" in new KafkaScope {
       val memberAssignment = MemberAssignment(
         version = 0,
-        topicPartition = Seq(MemberAssignmentTopicPartition(topicName = "test", partitions = Seq(0))),
+        topicPartitions = Seq(TopicPartition("test", 0)),
         userData = "more-test".getBytes
       )
 
-      val consumerProtocolMetadata = ConsumerProtocolMetadata(0, Seq("test"), "test".getBytes)
+      val consumerProtocolMetadata = ConsumerProtocol(0, Seq("test"), "test".getBytes)
 
       val prg = for {
         joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata))))
@@ -108,14 +115,14 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         val (joinGroupResult, describeGroupResult) = result.value
 
         describeGroupResult should have size 1
-        describeGroupResult.head.errorCode shouldBe KafkaResult.NoError
+        describeGroupResult.head.kafkaResult shouldBe KafkaResult.NoError
         describeGroupResult.head.groupId shouldBe groupId
         describeGroupResult.head.state shouldBe "Stable"
         describeGroupResult.head.protocolType should not be empty
         describeGroupResult.head.members should have size 1
-        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
+        //        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
         describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
-        describeGroupResult.head.members.head.consumerProtocolMetadata shouldBe Some(consumerProtocolMetadata)
+        describeGroupResult.head.members.head.consumerProtocol shouldBe Some(consumerProtocolMetadata)
         describeGroupResult.head.members.head.assignment shouldBe Some(memberAssignment)
       }
     }
@@ -123,11 +130,11 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
     "describeGroups without syncGroup call" in new KafkaScope {
       val memberAssignment = MemberAssignment(
         version = 0,
-        topicPartition = Seq(MemberAssignmentTopicPartition(topicName = "test", partitions = Seq(0))),
+        topicPartitions = Seq(TopicPartition("test", 0)),
         userData = "more-test".getBytes
       )
 
-      val consumerProtocolMetadata = ConsumerProtocolMetadata(0, Seq("test"), "test".getBytes)
+      val consumerProtocolMetadata = ConsumerProtocol(0, Seq("test"), "test".getBytes)
 
       val prg = for {
         joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata))))
@@ -138,21 +145,20 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         val (joinGroupResult, describeGroupResult) = result.value
 
         describeGroupResult should have size 1
-        describeGroupResult.head.errorCode shouldBe KafkaResult.NoError
+        describeGroupResult.head.kafkaResult shouldBe KafkaResult.NoError
         describeGroupResult.head.groupId shouldBe groupId
         describeGroupResult.head.state shouldBe "AwaitingSync"
         describeGroupResult.head.protocolType should not be empty
         describeGroupResult.head.members should have size 1
-        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
         describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
-        describeGroupResult.head.members.head.consumerProtocolMetadata shouldBe None
+        describeGroupResult.head.members.head.consumerProtocol shouldBe None
         describeGroupResult.head.members.head.assignment shouldBe None
       }
     }
 
     "leaveGroup" in new KafkaScope {
       val prg = for {
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Seq.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), Seq.empty)))))
         leaveGroupResult <- kafka.leaveGroup(groupId, joinGroupResult.memberId)
       } yield leaveGroupResult
 
@@ -163,7 +169,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
 
     "heartbeat" in new KafkaScope {
       val prg = for {
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), Seq.empty)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), Seq.empty)))))
         heartbeatResult <- kafka.heartbeat(groupId, joinGroupResult.generationId, joinGroupResult.memberId)
       } yield heartbeatResult
 
@@ -175,7 +181,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
     "syncGroup" in new KafkaScope {
 
       val prg = for {
-        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocolMetadata(0, Seq("test"), "test".getBytes)))))
+        joinGroupResult <- kafka.joinGroup(groupId, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), "test".getBytes)))))
         syncGroupResult <- kafka.syncGroup(
           groupId = groupId,
           generationId = joinGroupResult.generationId,
@@ -185,7 +191,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
               memberId = joinGroupResult.memberId,
               memberAssignment = MemberAssignment(
                 version = 0,
-                topicPartition = Seq(MemberAssignmentTopicPartition(topicName = "test", partitions = Seq(0))),
+                topicPartitions = Seq(TopicPartition(topic = "test", partition = 0)),
                 userData = "more-test".getBytes
               )
             )
@@ -196,20 +202,19 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
       whenReady(run(prg)) { result =>
         val syncGroupResult = result.value
         syncGroupResult.version shouldBe 0
-        syncGroupResult.topicPartition should have size 1
-        syncGroupResult.topicPartition.head shouldBe MemberAssignmentTopicPartition("test", Seq(0))
+        syncGroupResult.topicPartitions should have size 1
+        syncGroupResult.topicPartitions.head shouldBe TopicPartition("test", 0)
         syncGroupResult.userData shouldBe "more-test".getBytes
       }
     }
 
     "metadata" in new KafkaScope {
-      whenReady(run(kafka.metadata(Vector.empty))) { result =>
+      whenReady(run(kafka.metadata(Set.empty))) { result =>
         val metadata = result.value
 
         metadata.brokers should have size 1
-        metadata.brokers.head.nodeId shouldBe 0
-        metadata.brokers.head.host shouldBe "localhost"
-        metadata.brokers.head.port shouldBe 9999
+        metadata.brokers.head.nodeId shouldBe 1001
+        metadata.brokers.head.port shouldBe kafkaPort
 
         metadata.metadata shouldNot have size 0
       }
@@ -217,7 +222,7 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
 
     "listOffsets" in new KafkaScope {
       val prg = for {
-        produceResult <- kafka.produce(Map(topicPartition -> List("key".getBytes -> "Hello world".getBytes, "key".getBytes -> "Hello world".getBytes)))
+        produceResult <- kafka.produce(Map(topicPartition -> List(Record.fromUtf8StringKeyValue("key", "Hello world"), Record.fromUtf8StringKeyValue("key", "Hello world"))))
         fetchResult <- kafka.fetch(Map(topicPartition -> 0l))
         offsetCommitResult <- kafka.offsetCommit(groupId, Map(topicPartition -> OffsetMetadata(fetchResult.head.value.maxBy(_.offset).offset, Some("metadata"))))
         listOffsetResult <- kafka.listOffsets(Set(topicPartition))
@@ -237,5 +242,59 @@ abstract class KafkaProtocolTest extends KafkaProtocolTestStack with Matchers wi
         result.value shouldNot have size 0
       }
     }
+  }
+
+  final def kafkaScaling = 1
+
+  val protocol: KafkaAlg[KafkaMonad]
+
+  private def kafkaPort: Int = KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Could not get port for kafka 1"))
+  private def zookeeperPort: Int = 2181
+
+  private lazy val brokerRouter = system.actorOf(
+    KafkaConnectionPool.props(
+      bootstrapBrokers = Seq(deadServer(1), deadServer(2), KafkaBroker.Node("localhost", kafkaPort)),
+      connectionsPerBroker = 1
+    )
+  )
+
+  private def deadServer(nr: Int) = KafkaBroker.Node(s"localhost", 12300 + nr)
+
+  trait KafkaScope {
+    private def randomTopic = {
+      val name = s"test${System.nanoTime().toString}"
+      Utils.createTopic(name, 1, 1, zookeeperPort)
+      Thread.sleep(500)
+      name
+    }
+
+    private def randomGroup = s"group${System.nanoTime().toString}"
+
+    lazy val groupId = randomGroup
+    lazy val topicPartition = TopicPartition(randomTopic, 0)
+    lazy val context: KafkaContext = KafkaContext(
+      connectionPool = brokerRouter,
+      broker = KafkaBroker.AnyNode,
+      requestTimeout = Timeout(30.seconds),
+      settings = KafkaOperationalSettings(
+        retryBackoff = 500.milliseconds,
+        retryMaxCount = 5,
+        fetchMaxBytes = 8 * 1024,
+        fetchMaxWaitTime = 20.seconds,
+        produceTimeout = 20.seconds,
+        groupSessionTimeout = 30.seconds
+      )
+    )
+
+    def run[T](kafkaDsl: kafka.Dsl[T]) = kafkaDsl(protocol).value.run(context)
+  }
+
+  implicit val executionContext: ExecutionContext = system.dispatcher
+
+  override implicit def patienceConfig = PatienceConfig(timeout = 30.seconds, interval = 10.milliseconds)
+
+  override def afterAll() = {
+    TestKit.shutdownActorSystem(system)
+    super.afterAll()
   }
 }

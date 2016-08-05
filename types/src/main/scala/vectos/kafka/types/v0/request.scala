@@ -12,8 +12,8 @@ object KafkaRequest {
   final case class Fetch(replicaId: Int, maxWaitTime: Int, minBytes: Int, topics: Vector[FetchTopicRequest]) extends KafkaRequest
   final case class ListOffset(replicaId: Int, topics: Vector[ListOffsetTopicRequest]) extends KafkaRequest
   final case class Metadata(topics: Vector[Option[String]]) extends KafkaRequest
-  final case class OffsetCommit(consumerGroup: Option[String], topics: Vector[OffsetCommitTopicRequest]) extends KafkaRequest
-  final case class OffsetFetch(consumerGroup: Option[String], topics: Vector[OffsetFetchTopicRequest]) extends KafkaRequest
+  final case class OffsetCommit(groupId: Option[String], topics: Vector[OffsetCommitTopicRequest]) extends KafkaRequest
+  final case class OffsetFetch(groupId: Option[String], topics: Vector[OffsetFetchTopicRequest]) extends KafkaRequest
   final case class GroupCoordinator(groupId: Option[String]) extends KafkaRequest
   final case class JoinGroup(groupId: Option[String], sessionTimeOut: Int, memberId: Option[String], protocolType: Option[String], groupProtocols: Vector[JoinGroupProtocolRequest]) extends KafkaRequest
   final case class Heartbeat(groupId: Option[String], generationId: Int, memberId: Option[String]) extends KafkaRequest
@@ -35,10 +35,10 @@ object KafkaRequest {
     ("topics" | kafkaArray(kafkaString)).as[Metadata]
 
   def offsetCommit(implicit topic: Codec[OffsetCommitTopicRequest]): Codec[OffsetCommit] =
-    (("consumerGroup" | kafkaString) :: ("topics" | kafkaArray(topic))).as[OffsetCommit]
+    (("groupId" | kafkaString) :: ("topics" | kafkaArray(topic))).as[OffsetCommit]
 
   def offsetFetch(implicit topic: Codec[OffsetFetchTopicRequest]): Codec[OffsetFetch] =
-    (("consumerGroup" | kafkaString) :: ("topics" | kafkaArray(topic))).as[OffsetFetch]
+    (("groupId" | kafkaString) :: ("topics" | kafkaArray(topic))).as[OffsetFetch]
 
   def groupCoordinator: Codec[GroupCoordinator] =
     ("groupId" | kafkaString).as[GroupCoordinator]

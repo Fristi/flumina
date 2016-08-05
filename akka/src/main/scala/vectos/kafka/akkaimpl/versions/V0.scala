@@ -1,37 +1,35 @@
 package vectos.kafka.akkaimpl.versions
 
 import akka.pattern.ask
-import cats.data.{Kleisli, Xor, XorT}
+import cats.data.Xor
 import cats.std.future._
 import cats.syntax.cartesian._
 import scodec.bits.BitVector
-import vectos.kafka.akkaimpl.{Kafka, KafkaConnection}
+import vectos.kafka.akkaimpl._
 import vectos.kafka.types._
 import vectos.kafka.types.ir._
 import vectos.kafka.types.v0._
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.Try
 
 final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[KafkaMonad] {
 
-  private def doRequest[A](g: Kafka.Context => KafkaRequest)(f: KafkaResponse => Xor[KafkaError, A]): KafkaMonad[A] = {
+  private def doRequest[A](g: KafkaContext => KafkaRequest, trace: Boolean)(f: KafkaResponse => Xor[KafkaError, A]): KafkaMonad[A] = {
     def run(retries: Int): KafkaMonad[A] = KafkaMonad.fromFutureXor { ctx =>
       val req = g(ctx)
 
       for {
         decoder <- responseDecoder(req).toFuture
         (key, payload) <- apiKeyAndPayload(req).toFuture
-        respBits <- ctx.connection
-          .ask(KafkaConnection.Request(apiKey = key, version = 0, requestPayload = payload))(ctx.requestTimeout)
-          .mapTo[Try[BitVector]]
-          .flatMap(Future.fromTry)
+        respBits <- ctx.connectionPool
+          .ask(KafkaBrokerRequest(ctx.broker, KafkaConnectionRequest(apiKey = key, version = 0, requestPayload = payload, trace = trace)))(ctx.requestTimeout)
+          .mapTo[BitVector]
 
         resp <- decoder(respBits).toFuture
 
         result <- f(resp) match {
-          case Xor.Left(KafkaError.Error(result)) if KafkaResult.isRetriable(result) && retries < ctx.settings.retryMaxCount =>
-            delay(ctx.settings.retryBackoffMs)(()) flatMap (_ => run(retries + 1).value.run(ctx))
+          case Xor.Left(KafkaError.Error(result)) if KafkaResult.canRetry(result) && retries < ctx.settings.retryMaxCount =>
+            FutureUtils.delay(ctx.settings.retryBackoff) flatMap (_ => run(retries + 1).value.run(ctx))
 
           case u => Future.successful(u)
         }
@@ -51,7 +49,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       }
       .toVector
 
-    doRequest(_ => KafkaRequest.ListOffset(replicaId = -1, topics = topicPartitions)) {
+    doRequest(_ => KafkaRequest.ListOffset(replicaId = -1, topics = topicPartitions), trace = false) {
       case KafkaResponse.ListOffset(topicOffsets) => (for {
         topicOffset <- KafkaList.fromList(topicOffsets)
         topic <- KafkaList.fromOption(topicOffset.topicName, KafkaError.MissingInfo("topicName is missing!"))
@@ -61,8 +59,8 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     }
   }
 
-  def offsetFetch(consumerGroup: String, topicPartitions: Set[TopicPartition]) =
-    doRequest(_ => KafkaRequest.OffsetFetch(Some(consumerGroup), topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(Some(topic), tp.map(_.partition).toVector) }.toVector)) {
+  def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]) =
+    doRequest(_ => KafkaRequest.OffsetFetch(Some(groupId), topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(Some(topic), tp.map(_.partition).toVector) }.toVector), trace = false) {
       case KafkaResponse.OffsetFetch(topics) => (for {
         topic <- KafkaList.fromList(topics)
         topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
@@ -72,14 +70,14 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     }
 
   def leaveGroup(group: String, memberId: String) =
-    doRequest(_ => KafkaRequest.LeaveGroup(Some(group), Some(memberId))) {
-      case KafkaResponse.LeaveGroup(errorCode) =>
-        if (errorCode == KafkaResult.NoError) Xor.right(())
-        else Xor.left(KafkaError.Error(errorCode))
+    doRequest(_ => KafkaRequest.LeaveGroup(Some(group), Some(memberId)), trace = false) {
+      case KafkaResponse.LeaveGroup(kafkaResult) =>
+        if (kafkaResult == KafkaResult.NoError) Xor.right(())
+        else Xor.left(KafkaError.Error(kafkaResult))
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
-  def offsetCommit(consumerGroup: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
+  def offsetCommit(groupId: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
     val offsetTopics = offsets
       .groupBy { case (topicPartition, _) => topicPartition }
       .map {
@@ -88,7 +86,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       }
       .toVector
 
-    doRequest(_ => KafkaRequest.OffsetCommit(Some(consumerGroup), offsetTopics)) {
+    doRequest(_ => KafkaRequest.OffsetCommit(Some(groupId), offsetTopics), trace = false) {
       case KafkaResponse.OffsetCommit(topics) => (for {
         topic <- KafkaList.fromList(topics)
         topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
@@ -99,16 +97,16 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
   }
 
   def listGroups =
-    doRequest(_ => KafkaRequest.ListGroups) {
-      case KafkaResponse.ListGroups(errorCode, groups) =>
-        if (errorCode == KafkaResult.NoError) {
+    doRequest(_ => KafkaRequest.ListGroups, trace = false) {
+      case KafkaResponse.ListGroups(kafkaResult, groups) =>
+        if (kafkaResult == KafkaResult.NoError) {
           (for {
             group <- KafkaList.fromList(groups)
             groupId <- KafkaList.fromOption(group.groupId, KafkaError.MissingInfo("groupId is missing!"))
             protocolType <- KafkaList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
           } yield GroupInfo(groupId, protocolType)).run
         } else {
-          Xor.left(KafkaError.Error(errorCode))
+          Xor.left(KafkaError.Error(kafkaResult))
         }
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
@@ -118,7 +116,10 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       assignment <- KafkaList.fromList(assignments)
       data = MemberAssignmentData(
         version = assignment.memberAssignment.version,
-        topicPartition = assignment.memberAssignment.topicPartition.map(y => MemberAssignmentTopicPartitionData(Some(y.topicName), y.partitions.toVector)).toVector,
+        topicPartition = assignment.memberAssignment.topicPartitions.groupBy(_.topic).map {
+          case (topic, partitions) =>
+            MemberAssignmentTopicPartitionData(Some(topic), partitions.map(_.partition).toVector)
+        }.toVector,
         userData = assignment.memberAssignment.userData.toVector
       )
       assignmentData <- KafkaList.fromAttempt(MemberAssignmentData.codec.encode(data))
@@ -126,7 +127,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
     for {
       assignmentRequest <- KafkaMonad.fromXor(makeAssignmentRequest)
-      response <- doRequest(_ => KafkaRequest.SyncGroup(Some(groupId), generationId, Some(memberId), assignmentRequest.toVector)) {
+      response <- doRequest(_ => KafkaRequest.SyncGroup(Some(groupId), generationId, Some(memberId), assignmentRequest.toVector), trace = false) {
         case KafkaResponse.SyncGroup(result, assignmentData) =>
           if (result == KafkaResult.NoError) {
             for {
@@ -142,9 +143,9 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
   }
 
   def fetch(topicPartitionOffsets: Map[TopicPartition, Long]) = {
-    def makeRequest(ctx: Kafka.Context) = KafkaRequest.Fetch(
+    def makeRequest(ctx: KafkaContext) = KafkaRequest.Fetch(
       replicaId = -1,
-      maxWaitTime = ctx.settings.fetchMaxWaitTime,
+      maxWaitTime = ctx.settings.fetchMaxWaitTime.toMillis.toInt,
       minBytes = 1,
       topics =
         topicPartitionOffsets
@@ -156,7 +157,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
           .toVector
     )
 
-    doRequest(makeRequest) {
+    doRequest(makeRequest, trace = false) {
       case KafkaResponse.Fetch(topics) =>
         (for {
           topic <- KafkaList.fromList(topics)
@@ -164,7 +165,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
           partition <- KafkaList.fromList(topic.partitions)
         } yield {
           val topicPartition = TopicPartition(topicName, partition.partition)
-          val messages = partition.messages.map(x => MessageEntry(x.offset, x.message.key, x.message.value)).toList
+          val messages = partition.messages.map(x => RecordEntry(x.offset, Record(x.message.key, x.message.value))).toList
           TopicPartitionResult(topicPartition, partition.kafkaResult, messages)
         }).run
 
@@ -172,8 +173,8 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     }
   }
 
-  def metadata(topics: Vector[String]) =
-    doRequest(_ => KafkaRequest.Metadata(topics.map(Some.apply))) {
+  def metadata(topics: Set[String]) =
+    doRequest(_ => KafkaRequest.Metadata(topics.map(Some.apply).toVector), trace = false) {
       case u: KafkaResponse.Metadata =>
         val brokers = for {
           broker <- KafkaList.fromList(u.brokers)
@@ -196,7 +197,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
     def makeGroupProtocolRequest = KafkaMonad.fromXor {
       (for {
         protocol <- KafkaList.fromList(protocols)
-        protocolMetadata <- KafkaList.fromList(protocol.protocolMetadata)
+        protocolMetadata <- KafkaList.fromList(protocol.consumerProtocol)
         data = ConsumerProtocolMetadataData(
           version = protocolMetadata.version,
           subscriptions = protocolMetadata.subscriptions.map(Some.apply).toVector,
@@ -206,18 +207,20 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       } yield JoinGroupProtocolRequest(Some(protocol.protocolName), metaDataBitVector.toByteArray.toVector)).run
     }
 
-    def makeRequest(groupProtocols: Vector[JoinGroupProtocolRequest])(ctx: Kafka.Context) =
+    def makeRequest(groupProtocols: Vector[JoinGroupProtocolRequest])(ctx: KafkaContext) = {
+      val timeout = ctx.settings.groupSessionTimeout.toMillis.toInt
       KafkaRequest.JoinGroup(
         groupId = Some(groupId),
-        sessionTimeOut = ctx.settings.groupSessionTimeout,
+        sessionTimeOut = timeout,
         memberId = Some(""),
         protocolType = Some(protocol),
         groupProtocols = groupProtocols
       )
+    }
 
     for {
       groupProtocolRequests <- makeGroupProtocolRequest
-      response <- doRequest(makeRequest(groupProtocolRequests.toVector)) {
+      response <- doRequest(makeRequest(groupProtocolRequests.toVector), trace = false) {
         case u: KafkaResponse.JoinGroup =>
           def extractMembers(members: Seq[JoinGroupMemberResponse]) = (for {
             group <- KafkaList.fromList(members)
@@ -226,7 +229,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
             consumerProtocolMetadata <- KafkaList.lift(extractConsumerProtocolMetadataData(protocolMetadata))
           } yield GroupMember(memberId, None, None, Some(consumerProtocolMetadata), None)).run
 
-          if (u.errorCode == KafkaResult.NoError) {
+          if (u.kafkaResult == KafkaResult.NoError) {
             for {
               memberId <- Xor.fromOption(u.memberId, KafkaError.MissingInfo("memberId is missing"))
               groupProtocol <- Xor.fromOption(u.groupProtocol, KafkaError.MissingInfo("groupProtocol is missing"))
@@ -234,7 +237,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
               members <- extractMembers(u.members)
             } yield JoinGroupResult(u.generationId, groupProtocol, leaderId, memberId, members)
           } else {
-            Xor.left(KafkaError.Error(u.errorCode))
+            Xor.left(KafkaError.Error(u.kafkaResult))
           }
         case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
       }
@@ -242,19 +245,18 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
 
   }
 
-  def produce(values: Map[TopicPartition, List[(Array[Byte], Array[Byte])]]) = {
-    def makeRequest(ctx: Kafka.Context) = KafkaRequest.Produce(
+  def produce(values: Map[TopicPartition, List[Record]]) = {
+    def makeRequest(ctx: KafkaContext) = KafkaRequest.Produce(
       acks = 1,
-      timeout = ctx.settings.produceTimeout,
+      timeout = ctx.settings.produceTimeout.toMillis.toInt,
       topics = values
         .groupBy { case (tp, _) => tp.topic }
         .map {
           case (topic, tpvalues) =>
             ProduceTopicRequest(Some(topic), tpvalues.map {
               case (tp, keyValues) =>
-                val messages = keyValues.map {
-                  case (key, value) =>
-                    MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = key.toVector, value = value.toVector))
+                val messages = keyValues.map { keyedMessage =>
+                  MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = keyedMessage.key.toVector, value = keyedMessage.value.toVector))
                 }
 
                 ProduceTopicPartitionRequest(tp.partition, messages.toVector)
@@ -263,7 +265,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
         .toVector
     )
 
-    doRequest(makeRequest) {
+    doRequest(makeRequest, trace = false) {
       case KafkaResponse.Produce(topics) => (for {
         topic <- KafkaList.fromList(topics)
         topicName <- KafkaList.fromOption(topic.topicName, KafkaError.MissingInfo("topicName is missing!"))
@@ -274,7 +276,7 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
   }
 
   def describeGroups(groupIds: Set[String]) =
-    doRequest(_ => KafkaRequest.DescribeGroups(groupIds.map(Some.apply).toVector)) {
+    doRequest(_ => KafkaRequest.DescribeGroups(groupIds.map(Some.apply).toVector), trace = false) {
       case KafkaResponse.DescribeGroups(groups) =>
         def groupMembers(members: Seq[DescribeGroupsGroupMemberResponse]) = {
           (for {
@@ -308,22 +310,22 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
           protocolType <- KafkaList.fromOption(group.protocolType, KafkaError.MissingInfo("protocolType is missing!"))
           protocol <- KafkaList.fromOption(group.protocol, KafkaError.MissingInfo("protocol is missing!"))
           members <- KafkaList.lift(groupMembers(group.members))
-        } yield Group(group.errorCode, groupName, state, protocolType, protocol, members)).run
+        } yield Group(group.kafkaResult, groupName, state, protocolType, protocol, members)).run
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
   def heartbeat(group: String, generationId: Int, memberId: String) =
-    doRequest(_ => KafkaRequest.Heartbeat(Some(group), generationId, Some(memberId))) {
-      case KafkaResponse.Heartbeat(errorCode) => if (errorCode == KafkaResult.NoError) Xor.right(()) else Xor.left(KafkaError.Error(errorCode))
-      case _                                  => Xor.left(KafkaError.OtherResponseTypeExpected)
+    doRequest(_ => KafkaRequest.Heartbeat(Some(group), generationId, Some(memberId)), trace = false) {
+      case KafkaResponse.Heartbeat(kafkaResult) => if (kafkaResult == KafkaResult.NoError) Xor.right(()) else Xor.left(KafkaError.Error(kafkaResult))
+      case _                                    => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
   def groupCoordinator(groupId: String) =
-    doRequest(_ => KafkaRequest.GroupCoordinator(Some(groupId))) {
+    doRequest(_ => KafkaRequest.GroupCoordinator(Some(groupId)), trace = false) {
       case u: KafkaResponse.GroupCoordinator =>
         if (u.kafkaResult == KafkaResult.NoError) {
           u.coordinatorHost match {
-            case Some(host) => Xor.right(GroupCoordinator(u.coordinatorId, host, u.coordinatorPort))
+            case Some(host) => Xor.right(Broker(u.coordinatorId, host, u.coordinatorPort))
             case _          => Xor.left(KafkaError.MissingInfo("coordinator host is missing!"))
           }
         } else {
@@ -332,16 +334,15 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       case _ => Xor.left(KafkaError.OtherResponseTypeExpected)
     }
 
-  def pure[A](x: A): KafkaMonad[A] =
-    XorT.right[Kleisli[Future, Kafka.Context, ?], KafkaError, A](Kleisli.pure[Future, Kafka.Context, A](x))
-
-  def flatMap[A, B](fa: KafkaMonad[A])(f: (A) => KafkaMonad[B]): KafkaMonad[B] = fa.flatMap(f)
+  def pure[A](x: A) = KafkaMonad.pure(x)
+  def flatMap[A, B](fa: KafkaMonad[A])(f: (A) => KafkaMonad[B]) = fa.flatMap(f)
 
   private def extractMemberAssignment(data: MemberAssignmentData) = {
     def extractMemberAssignmentTopicPartition(memberAssignmentTopicPartitions: Seq[MemberAssignmentTopicPartitionData]) = (for {
       matp <- KafkaList.fromList(memberAssignmentTopicPartitions)
       topicName <- KafkaList.fromOption(matp.topicName, KafkaError.MissingInfo("topicName is missing!"))
-    } yield MemberAssignmentTopicPartition(topicName, matp.partitions)).run
+      partition <- KafkaList.fromList(matp.partitions)
+    } yield TopicPartition(topicName, partition)).run
 
     for {
       matps <- extractMemberAssignmentTopicPartition(data.topicPartition)
@@ -354,6 +355,6 @@ final class V0(implicit executionContext: ExecutionContext) extends KafkaAlg[Kaf
       subscriptionName <- KafkaList.fromOption(subscription, KafkaError.MissingInfo("subscription is missing!"))
     } yield subscriptionName).run
 
-    subscriptions.map(subs => ConsumerProtocolMetadata(data.version, subs, data.userData))
+    subscriptions.map(subs => ConsumerProtocol(data.version, subs, data.userData))
   }
 }

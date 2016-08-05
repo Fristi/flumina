@@ -15,9 +15,9 @@ final case class MetadataTopicPartitionMetadataResponse(
 )
 
 final case class MetadataTopicMetadataResponse(
-  errorCode:  KafkaResult,
-  topicName:  Option[String],
-  partitions: Vector[MetadataTopicPartitionMetadataResponse]
+  kafkaResult: KafkaResult,
+  topicName:   Option[String],
+  partitions:  Vector[MetadataTopicPartitionMetadataResponse]
 )
 
 object MetadataBrokerResponse {

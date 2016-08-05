@@ -15,7 +15,7 @@ object KafkaResponse {
   final case class OffsetCommit(topics: Vector[OffsetCommitTopicResponse]) extends KafkaResponse
   final case class OffsetFetch(topics: Vector[OffsetFetchTopicResponse]) extends KafkaResponse
   final case class GroupCoordinator(kafkaResult: KafkaResult, coordinatorId: Int, coordinatorHost: Option[String], coordinatorPort: Int) extends KafkaResponse
-  final case class JoinGroup(errorCode: KafkaResult, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
+  final case class JoinGroup(kafkaResult: KafkaResult, generationId: Int, groupProtocol: Option[String], leaderId: Option[String], memberId: Option[String], members: Vector[JoinGroupMemberResponse]) extends KafkaResponse
   final case class Heartbeat(kafkaResult: KafkaResult) extends KafkaResponse
   final case class LeaveGroup(kafkaResult: KafkaResult) extends KafkaResponse
   final case class ListGroups(kafkaResult: KafkaResult, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse

@@ -2,7 +2,30 @@ package vectos.kafka.types
 
 import scodec.bits.BitVector
 import scodec.codecs._
-import scodec.{Attempt, Codec, DecodeResult, SizeBound}
+import scodec.{Attempt, Codec, DecodeResult, Encoder, SizeBound}
+
+import scala.annotation.tailrec
+
+private[types] class KafkaPartialVectorCodec[A](valueCodec: Codec[A]) extends Codec[Vector[A]] {
+
+  override def encode(value: Vector[A]) = Encoder.encodeSeq(valueCodec)(value)
+
+  override def decode(bits: BitVector): Attempt[DecodeResult[Vector[A]]] = {
+    @tailrec
+    def extract(acc: List[A], bitVector: BitVector): Attempt[DecodeResult[Vector[A]]] = {
+      valueCodec.decode(bitVector) match {
+        case Attempt.Successful(DecodeResult(value, remainder)) =>
+          extract(value :: acc, remainder)
+        case Attempt.Failure(err) =>
+          Attempt.successful(DecodeResult(acc.reverse.toVector, BitVector.empty))
+      }
+    }
+
+    extract(List.empty, bits)
+  }
+
+  override def sizeBound: SizeBound = SizeBound.unknown
+}
 
 private[types] class KafkaStringCodec extends Codec[Option[String]] {
   val codec = variableSizeBytes(int16, ascii)

@@ -13,7 +13,7 @@ final case class DescribeGroupsGroupMemberResponse(
 )
 
 final case class DescribeGroupsGroupResponse(
-  errorCode:    KafkaResult,
+  kafkaResult:  KafkaResult,
   groupId:      Option[String],
   state:        Option[String],
   protocolType: Option[String],

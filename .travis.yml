@@ -1,12 +1,12 @@
 language: scala
-sudo: false
+sudo: required
 cache:
   directories:
     - $HOME/.ivy2/cache
     - $HOME/.sbt/boot/
 script:
-  - find $HOME/.sbt -name "*.lock" | xargs rm
-  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
+#  - find $HOME/.sbt -name "*.lock" | xargs rm
+#  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
   - sbt clean coverage test coverageReport &&
     sbt coverageAggregate
 after_success:
@@ -15,3 +15,17 @@ scala:
    - 2.11.8
 jdk:
    - oraclejdk8
+services:
+  - docker
+env:
+  DOCKER_COMPOSE_VERSION: 1.8.0
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew install docker-engine
+  - sudo rm /usr/local/bin/docker-compose
+  - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
+  - chmod +x docker-compose
+  - sudo mv docker-compose /usr/local/bin
+  - docker pull wurstmeister/zookeeper:latest
+  - docker pull wurstmeister/kafka:0.9.0.1
+  - docker pull wurstmeister/kafka:0.10.0.0

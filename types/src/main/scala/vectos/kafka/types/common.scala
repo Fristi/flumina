@@ -40,7 +40,7 @@ object KafkaResult {
   case object GroupAuthorizationFailed extends KafkaResult
   case object ClusterAuthorizationFailed extends KafkaResult
 
-  def isRetriable(result: KafkaResult) = result match {
+  def canRetry(result: KafkaResult) = result match {
     case InvalidMessage |
       UnknownTopicOrPartition |
       LeaderNotAvailable |

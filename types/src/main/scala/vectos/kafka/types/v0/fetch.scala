@@ -26,7 +26,7 @@ object FetchTopicPartitionResponse {
       ("partition" | int32) ::
       ("kafkaResult" | kafkaResult) ::
       ("highWaterMark" | int64) ::
-      ("messages" | variableSizeBytes(int32, vector(messageSetEntry)))
+      ("messages" | variableSizeBytes(int32, partialVector(messageSetEntry)))
     ).as[FetchTopicPartitionResponse]
 }
 

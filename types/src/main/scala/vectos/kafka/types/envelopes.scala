@@ -9,7 +9,7 @@ final case class RequestEnvelope(apiKey: Int, apiVersion: Int, correlationId: In
 final case class ResponseEnvelope(correlationId: Int, response: BitVector)
 
 object RequestEnvelope {
-  implicit val codec: Codec[RequestEnvelope] = (
+  val codec: Codec[RequestEnvelope] = (
     ("apiKey" | int16) ::
     ("apiVersion" | int16) ::
     ("correlationId" | int32) ::
@@ -19,5 +19,5 @@ object RequestEnvelope {
 }
 
 object ResponseEnvelope {
-  implicit val codec: Codec[ResponseEnvelope] = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
+  val codec: Codec[ResponseEnvelope] = (("correlationId" | int32) :: ("response" | scodec.codecs.bits)).as[ResponseEnvelope]
 }
