@@ -3,6 +3,8 @@ package vectos.kafka
 import akka.util.ByteString
 import scodec.bits.ByteVector
 
+import scala.annotation.tailrec
+
 package object akkaimpl {
 
   implicit class EnrichedByteString(val value: ByteString) extends AnyVal {
@@ -20,8 +22,20 @@ package object akkaimpl {
   }
 
   implicit class RichMap[K, V](val map: Map[K, V]) {
+    @inline
     def updatedValue(key: K, default: => V)(update: V => V) =
       map.updated(key, update(map.getOrElse(key, default)))
+  }
+
+  implicit class RichSeq[K, V](val list: Seq[(K, V)]) {
+    def toMultimap: Map[K, List[V]] = {
+      @tailrec
+      def run(acc: Map[K, List[V]], ls: List[(K, V)]): Map[K, List[V]] = ls match {
+        case (key, value) :: xs => run(acc.updatedValue(key, Nil)(value :: _), xs)
+        case Nil                => acc.mapValues(_.reverse)
+      }
+      run(Map(), list.toList)
+    }
   }
 
 }

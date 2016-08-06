@@ -16,7 +16,13 @@ The library should be treated as alpha software. Be free to try it (clone it and
 import vectos.kafka.types.ir._
 import vectos.kafka.akkaimpl._
 
+import akka.actor.ActorSystem
+import akka.stream.ActorMaterializer
+
 import scala.concurrent.duration._
+
+implicit val actorSystem = ActorSystem()
+implicit val materializer = ActorMaterializer()
 
 val settings = KafkaSettings(
     bootstrapBrokers = Seq(KafkaBroker.Node("localhost", 9092)),
@@ -41,14 +47,14 @@ val topicName = "test"
 ## Producing values
 
 ```scala
+
+//create a Map[TopicPartition, List[Record]], 
+//all records grouped by their respective 
+//topic and partition. 
 val produce = (1 to 10000)
     .map(x => TopicPartition(topicName, x % nrPartitions) -> Record.fromUtf8StringValue(s"Hello world $x"))
-    .groupBy { case (topicPartition, _) => topicPartition }
-    .foldLeft(Map.empty[TopicPartition, List[Record]]) {
-      case (acc, (tp, msgs)) =>
-        acc ++ Map(tp -> msgs.foldLeft(List.empty[Record]) { case (acca, e) => acca :+ e._2 })
-    }
-
+    .toMultimap
+    
 //returns a Future[Result[Long]]
 client.produce(produce)
 ```
@@ -57,6 +63,7 @@ client.produce(produce)
 
 ```scala
 //returns a Source[RecordEntry, NotUsed]
+//TODO: return per topicPartition a stream, so they can be processed async
 client.fetchFromBeginning(TopicPartition.enumerate(topicName, nrPartitions))
 ```
 

@@ -33,11 +33,7 @@ abstract class KafkaClientTest extends TestKit(ActorSystem())
       val size = 5000
       val produce = (1 to size)
         .map(x => TopicPartition(name, x % nrPartitions) -> Record.fromUtf8StringValue(s"Hello world $x"))
-        .groupBy { case (topicPartition, _) => topicPartition }
-        .foldLeft(Map.empty[TopicPartition, List[Record]]) {
-          case (acc, (tp, msgs)) =>
-            acc ++ Map(tp -> msgs.foldLeft(List.empty[Record]) { case (acca, e) => acca :+ e._2 })
-        }
+        .toMultimap
 
       val prg = for {
         produceResult <- client.produce(produce)
@@ -65,11 +61,7 @@ abstract class KafkaClientTest extends TestKit(ActorSystem())
       val nrToProduce = 100000
       val produce = (1 to nrToProduce)
         .map(x => TopicPartition(name, x % nrPartitions) -> Record.fromUtf8StringValue(s"Hello world $x"))
-        .groupBy { case (topicPartition, _) => topicPartition }
-        .foldLeft(Map.empty[TopicPartition, List[Record]]) {
-          case (acc, (tp, msgs)) =>
-            acc ++ Map(tp -> msgs.foldLeft(List.empty[Record]) { case (acca, e) => acca :+ e._2 })
-        }
+        .toMultimap
 
       whenReady(client.produce(produce).flatMap(x => FutureUtils.delay(1.seconds).map(_ => x))) { produceResult =>
         //check if the produceResult has error
@@ -90,11 +82,7 @@ abstract class KafkaClientTest extends TestKit(ActorSystem())
       val size = 1000
       val produce = (1 to size)
         .map(x => TopicPartition(name, x % nrPartitions) -> Record.fromUtf8StringValue(s"Hello world $x"))
-        .groupBy { case (topicPartition, _) => topicPartition }
-        .foldLeft(Map.empty[TopicPartition, List[Record]]) {
-          case (acc, (tp, msgs)) =>
-            acc ++ Map(tp -> msgs.foldLeft(List.empty[Record]) { case (acca, e) => acca :+ e._2 })
-        }
+        .toMultimap
 
       val prg = for {
         produceResult <- client.produce(produce)
