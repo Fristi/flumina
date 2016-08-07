@@ -9,6 +9,7 @@ script:
 #  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
   - sbt clean coverage test coverageReport &&
     sbt coverageAggregate
+  - '[ "${TRAVIS_PULL_REQUEST}" = "false" ] && sbt updateImpactSubmit || true'
 after_success:
   - sbt coveralls
 scala:
