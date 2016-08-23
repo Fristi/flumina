@@ -48,7 +48,7 @@ val commonSettings = Seq(
 lazy val types = project.in(file("types"))
   .settings(commonSettings)
   .settings(
-      name := "scala-kafka-types",
+      name := "flumina-types",
       libraryDependencies ++= Seq(
         "org.typelevel" %% "cats-core" % "0.6.1",
         "org.scodec" %% "scodec-core" % "1.9.0"
@@ -59,7 +59,7 @@ lazy val types = project.in(file("types"))
 lazy val akka = project.in(file("akka"))
   .settings(commonSettings)
   .settings(
-      name := "scala-kafka-akka",
+      name := "flumina-akka",
       parallelExecution in Test := false,
       libraryDependencies ++= Seq(
           "com.typesafe.akka" %% "akka-stream" % "2.4.8",

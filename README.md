@@ -1,9 +1,9 @@
-scala-kafka
+Flumina
 ===
 
-[![Build Status](https://travis-ci.org/vectos/scala-kafka.svg)](https://travis-ci.org/vectos/scala-kafka)
-[![Coverage Status](https://coveralls.io/repos/github/vectos/scala-kafka/badge.svg?branch=master)](https://coveralls.io/github/vectos/scala-kafka?branch=master)
-[![Dependencies](https://app.updateimpact.com/badge/762391907245625344/scala-kafka.svg?config=runtime)](https://app.updateimpact.com/latest/762391907245625344/scala-kafka)
+[![Build Status](https://travis-ci.org/vectos/flumina.svg)](https://travis-ci.org/vectos/flumina)
+[![Coverage Status](https://coveralls.io/repos/github/vectos/flumina/badge.svg?branch=master)](https://coveralls.io/github/vectos/flumina?branch=master)
+[![Dependencies](https://app.updateimpact.com/badge/762391907245625344/flumina.svg?config=runtime)](https://app.updateimpact.com/latest/762391907245625344/flumina)
 
 Kafka driver written in pure Scala. Request and response messages and their respective codecs reside in the `types` project. Currently we support version 0 only. This is due testing of the protocol. We plan to support version 1, 2 and future versions (this will be copy-pasting and editing some stuff).
 
@@ -14,8 +14,8 @@ The library should be treated as alpha software. Be free to try it (clone it and
 ## Setup
 
 ```scala
-import vectos.kafka.types.ir._
-import vectos.kafka.akkaimpl._
+import flumina.types.ir._
+import flumina.akkaimpl._
 
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
