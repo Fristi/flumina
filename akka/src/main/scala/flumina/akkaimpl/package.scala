@@ -1,17 +1,18 @@
 package flumina
 
 import akka.util.ByteString
-import scodec.bits.ByteVector
+import flumina.core.Async
+import scodec.bits.BitVector
 
-import scala.annotation.tailrec
+import scala.concurrent.{ExecutionContext, Future}
 
 package object akkaimpl {
 
   implicit class EnrichedByteString(val value: ByteString) extends AnyVal {
-    def toByteVector: ByteVector = ByteVector.viewAt((idx: Long) => value(idx.toInt), value.size.toLong)
+    def toBitVector: BitVector = BitVector.view(value.asByteBuffer)
   }
 
-  implicit class EnrichedByteVector(val value: ByteVector) extends AnyVal {
+  implicit class EnrichedBitVector(val value: BitVector) extends AnyVal {
     def toByteString: ByteString = ByteString(value.toByteBuffer)
   }
 
@@ -21,20 +22,17 @@ package object akkaimpl {
     def ===(other: A): Boolean = self == other
   }
 
-  implicit class RichMap[K, V](val map: Map[K, V]) {
-    @inline
-    def updatedValue(key: K, default: => V)(update: V => V) =
-      map.updated(key, update(map.getOrElse(key, default)))
-  }
+  implicit def futureAsyncInstance(implicit ec: ExecutionContext): Async[Future] = new Async[Future] {
 
-  implicit class RichSeq[K, V](val list: Seq[(K, V)]) {
-    def toMultimap: Map[K, List[V]] = {
-      @tailrec
-      def run(acc: Map[K, List[V]], ls: List[(K, V)]): Map[K, List[V]] = ls match {
-        case (key, value) :: xs => run(acc.updatedValue(key, Nil)(value :: _), xs)
-        case Nil                => acc.mapValues(_.reverse)
-      }
-      run(Map(), list.toList)
+    def fail[A](err: Throwable): Future[A] = Future.failed(err)
+
+    def pure[A](x: A): Future[A] = Future.successful(x)
+
+    def flatMap[A, B](fa: Future[A])(f: (A) => Future[B]): Future[B] = fa.flatMap(f)
+
+    def tailRecM[A, B](a: A)(f: (A) => Future[Either[A, B]]): Future[B] = f(a).flatMap {
+      case Left(b1) => tailRecM(b1)(f)
+      case Right(c) => Future.successful(c)
     }
   }
 

@@ -30,28 +30,32 @@ val scalacOpts = List(
   "-Yrangepos",
   "-Ywarn-dead-code",
   "-Ywarn-numeric-widen",
-  "-Ywarn-unused-import"
+  "-Ywarn-unused-import",
+  "-Ypartial-unification"
 )
 
 val commonSettings = Seq(
   version := "0.1.0",
+  scalaOrganization := "org.typelevel",
   scalaVersion := "2.11.8",
   javacOptions += "-Xmx2048M",
   scalacOptions ++= scalacOpts,
   wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
   wartremoverErrors in (Test, compile) := Seq(),
   ScalariformKeys.preferences := Settings.commonFormattingPreferences,
-  pomPostProcess := { (node: xml.Node) => removeScoverage.transform(node).head }
+  pomPostProcess := { (node: xml.Node) => removeScoverage.transform(node).head },
+  resolvers += Resolver.sonatypeRepo("releases")
 ) ++ scalariformSettings
 
 
-lazy val types = project.in(file("types"))
+lazy val core = project.in(file("core"))
   .settings(commonSettings)
   .settings(
-      name := "flumina-types",
+      name := "flumina-core",
       libraryDependencies ++= Seq(
-        "org.typelevel" %% "cats-core" % "0.6.1",
-        "org.scodec" %% "scodec-core" % "1.9.0"
+        "org.typelevel" %% "cats-core" % "0.7.2",
+        "org.scodec" %% "scodec-core" % "1.10.2",
+        "org.scodec" %% "scodec-bits" % "1.1.1"
       ),
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
   )
@@ -62,17 +66,17 @@ lazy val akka = project.in(file("akka"))
       name := "flumina-akka",
       parallelExecution in Test := false,
       libraryDependencies ++= Seq(
-          "com.typesafe.akka" %% "akka-stream" % "2.4.8",
+          "com.typesafe.akka" %% "akka-stream" % "2.4.10",
           //TEST dependencies.. oh my?
           "de.heikoseeberger" %% "akka-log4j" % "1.1.4" % "test",
           "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
           "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.6" % "test",
           "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
           "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
-          "com.typesafe.akka" %% "akka-testkit" % "2.4.8" % "test",
-          "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.8" % "test",
-          "com.ironcorelabs" %% "cats-scalatest" % "1.3.0" % "test",
-          "org.apache.kafka" %% "kafka" % "0.10.0.0" % "test", //TODO: wouldn't zookeeper be sufficient?
+          "com.typesafe.akka" %% "akka-testkit" % "2.4.10" % "test",
+          "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.10" % "test",
+          "com.ironcorelabs" %% "cats-scalatest" % "1.4.0" % "test",
+          "org.apache.kafka" %% "kafka" % "0.10.0.0" % "test",
           "com.spotify" % "docker-client" % "3.5.12" % "test",
           "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.0" % "test",
           "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.0" % "test"
@@ -80,4 +84,18 @@ lazy val akka = project.in(file("akka"))
       coverageMinimum := 80,
       coverageFailOnMinimum := false,
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
-  ).dependsOn(types)
+  ).dependsOn(core)
+
+
+lazy val akkaBenchmark = project.in(file("akka-benchmark"))
+    .settings(commonSettings)
+    .settings(
+      name := "flumina-akka-benchmark",
+      parallelExecution in Test := false,
+      publishTo := None,
+      coverageExcludedPackages := "flumina.benchmark.*",
+      libraryDependencies ++= Seq(
+        "io.dropwizard.metrics" % "metrics-core" % "3.1.0",
+        "org.apache.kafka" %% "kafka" % "0.10.0.0"
+      )
+    ).dependsOn(akka)

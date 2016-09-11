@@ -6,7 +6,8 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props, Status}
 import akka.io._
 import akka.util.{ByteIterator, ByteString}
 import scodec.Attempt
-import flumina.types.{RequestEnvelope, ResponseEnvelope}
+import flumina.core.{RequestEnvelope, ResponseEnvelope}
+import flumina.core.ir._
 
 import scala.annotation.tailrec
 
@@ -14,25 +15,37 @@ import scala.annotation.tailrec
  * A connection to kafka, low level IO TCP akka implementation.
  * Handles folding and unfolding of envelopes, reconnection and encoding/decoding message size and buffering of incoming
  * messages.
- *
- * We do not back pressure on the OS' TCP buffers
- *
- * TODO: We should evaluate if this will become a problem in a highly concurrent environment with large messages.
  */
 final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: KafkaBroker.Node, retryStrategy: KafkaConnectionRetryStrategy) extends Actor with ActorLogging {
 
   import Tcp._
   import context.dispatcher
 
-  private final case class Receiver(address: ActorRef, trace: Boolean)
+  private final case class Receiver(address: ActorRef, request: KafkaConnectionRequest, startTime: Long)
+  private final case class Ack(offset: Int) extends Tcp.Event
 
-  private final case class ConnectedState(connection: ActorRef, inFlightRequests: Map[Int, Receiver], nextCorrelationId: Int) {
-    def toBuffering(buffer: ByteString, bytesToRead: Int) = BufferingState(buffer, bytesToRead, connection, inFlightRequests, nextCorrelationId)
-  }
-  private final case class BufferingState(buffer: ByteString, bytesToRead: Int, connection: ActorRef, inFlightRequests: Map[Int, Receiver], nextCorrelationId: Int) {
-    def toConnectedWithoutCorrelationId(withoutCorrelationId: Int) = ConnectedState(connection, inFlightRequests - withoutCorrelationId, nextCorrelationId)
-    def toConnected = ConnectedState(connection, inFlightRequests, nextCorrelationId)
-  }
+  private val maxStored = 100000000L
+  private val highWatermark = maxStored * 5 / 10
+  private val lowWatermark = maxStored * 3 / 10
+
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var readBuffer: ByteString = ByteString.empty
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var bytesToRead: Option[Int] = None
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var connection: ActorRef = _
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var inFlightRequests: Map[Int, Receiver] = Map()
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var nextCorrelationId: Int = 0 //Int.MinValue
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var writeBuffer: Vector[ByteString] = Vector()
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var storageOffset: Int = 0
+  @SuppressWarnings(Array("org.wartremover.warts.Var"))
+  private var stored: Int = 0
+
+  private def currentOffset = storageOffset + writeBuffer.size
 
   override def preStart() = connect()
 
@@ -51,7 +64,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
   }
 
   def connect() = {
-    log.info(s"Connecting to $broker")
+    log.debug(s"Connecting to $broker")
     manager ! Tcp.Connect(new InetSocketAddress("localhost", broker.port))
   }
 
@@ -61,111 +74,182 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
       reconnect(timesTriedToConnect + 1)
 
     case Connected(remote, local) =>
-      val connection = sender()
+      connection = sender()
       pool ! KafkaConnectionPool.BrokerUp(self, broker)
       connection ! Register(self, keepOpenOnPeerClosed = true)
-      context.become(connected(ConnectedState(connection, Map(), Int.MinValue)))
+      context.become(connected)
   }
 
-  def connected(state: ConnectedState): Actor.Receive = {
-    case request: KafkaConnectionRequest =>
-      encodeEnvelope(state.nextCorrelationId, request) match {
-        case Attempt.Successful(msg) =>
-          state.connection ! Write(msg)
-          context.become(
-            connected(
-              state.copy(
-                inFlightRequests = state.inFlightRequests + (state.nextCorrelationId -> Receiver(sender(), request.trace)),
-                nextCorrelationId = state.nextCorrelationId + 1 //overflowing is oke
-              )
-            )
-          )
-        case Attempt.Failure(err) => log.warning(s"Error encoding: ${err.messageWithContext}")
-      }
+  def buffer(data: ByteString): Unit = {
+    writeBuffer :+= data
+    stored += data.size
 
-    case CommandFailed(w: Write) =>
-      log.warning(s"Failed to write... $w")
+    if (stored > maxStored) {
+      log.error(s"drop connection due buffer overrun")
+      context stop self
+    }
+  }
 
-    case Received(data) =>
-      if (data.size >= 4) {
-        val readSize = bigEndianDecoder(data.take(4).iterator, 4)
-        val buffer = data.drop(4)
+  def acknowledge(ack: Int) = {
+    require(ack === storageOffset, s"received ack $ack at $storageOffset")
+    require(writeBuffer.nonEmpty, s"writeBuffer was empty at ack $ack")
 
-        if (buffer.size === readSize) {
-          decodeEnvelope(buffer) match {
-            case Attempt.Successful(env) =>
-              state.inFlightRequests.get(env.correlationId) match {
-                case Some(receiver) =>
-                  if (receiver.trace) {
-                    log.debug(s"Response for ${env.correlationId} -> ${env.response.toHex}")
-                  }
-                  receiver.address ! Status.Success(env.response)
-                case None => log.warning(s"There was no receiver for ${env.correlationId}")
+    val size = writeBuffer(0).size
+    stored -= size
+
+    storageOffset += 1
+    writeBuffer = writeBuffer drop 1
+  }
+
+  def read(data: ByteString) = {
+
+    def decode(buffer: ByteString) = {
+      decodeEnvelope(buffer) match {
+        case Attempt.Successful(env) =>
+          inFlightRequests.get(env.correlationId) match {
+            case Some(receiver) =>
+              if (receiver.request.trace) {
+                log.info(s"<- [corrId: ${env.correlationId}] ${env.response.size / 8}")
               }
-              context.become(connected(state.copy(inFlightRequests = state.inFlightRequests - env.correlationId)))
 
-            case Attempt.Failure(err) =>
-              log.warning(s"Error decoding: ${err.messageWithContext}")
+              val timeTaken = System.currentTimeMillis() - receiver.startTime
+
+              if (timeTaken > 200) {
+                log.warning(s"Request [api-key: ${receiver.request.apiKey}, size: ${receiver.request.requestPayload.size}] took $timeTaken ms to execute")
+              }
+
+              receiver.address ! Status.Success(env.response)
+            case None => log.warning(s"There was no receiver for ${env.correlationId}")
           }
-        } else {
-          context.become(buffering(state.toBuffering(buffer, readSize)))
-        }
 
-      } else {
-        log.warning("Received data was smaller then 4? Should not go wrong...")
+          inFlightRequests -= env.correlationId
+
+        case Attempt.Failure(err) =>
+          log.error(s"Error decoding: ${err.messageWithContext}")
       }
-    case _: ConnectionClosed =>
-      pool ! KafkaConnectionPool.BrokerDown(self, broker)
-      context.become(connecting(0))
-      reconnect(0)
+    }
+
+    def run(toRead: Option[Int], currentBuffer: ByteString): (Option[Int], ByteString) = toRead match {
+      case Some(r) =>
+        if (currentBuffer.size >= r) {
+          decode(currentBuffer.take(r))
+          run(None, currentBuffer.drop(r))
+        } else {
+          toRead -> currentBuffer
+        }
+      case None =>
+        if (currentBuffer.size >= 4) {
+          run(Some(bigEndianDecoder(currentBuffer.take(4).iterator, 4)), currentBuffer.drop(4))
+        } else {
+          None -> currentBuffer
+        }
+    }
+
+    val (read, buffer) = run(bytesToRead, readBuffer ++ data)
+
+    bytesToRead = read
+    readBuffer = buffer
   }
 
-  def buffering(state: BufferingState): Actor.Receive = {
+  private def writeFirst(): Unit = {
+    connection ! Write(writeBuffer(0), Ack(storageOffset))
+  }
+
+  private def writeAll(): Unit = {
+    for ((data, i) <- writeBuffer.zipWithIndex) {
+      connection ! Write(data, Ack(storageOffset + i))
+    }
+  }
+
+  def goReconnect() = {
+    //TODO: reset all state?
+    pool ! KafkaConnectionPool.BrokerDown(self, broker)
+    context.become(connecting(0))
+    reconnect(0)
+  }
+
+  def connected: Actor.Receive = {
     case request: KafkaConnectionRequest =>
-      encodeEnvelope(correlationId = state.nextCorrelationId, request = request) match {
+      encodeEnvelope(nextCorrelationId, request) match {
         case Attempt.Successful(msg) =>
-          state.connection ! Write(msg)
-          context.become(
-            buffering(
-              state.copy(
-                inFlightRequests = state.inFlightRequests + (state.nextCorrelationId -> Receiver(sender(), request.trace)),
-                nextCorrelationId = state.nextCorrelationId + 1 //overflowing is oke
-              )
-            )
-          )
-        case Attempt.Failure(err) =>
-          log.warning(s"Error writing: ${err.messageWithContext}")
+          connection ! Write(msg, Ack(currentOffset))
+          buffer(msg)
+          inFlightRequests += (nextCorrelationId -> Receiver(sender(), request, System.currentTimeMillis()))
+          if (request.trace) {
+            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${msg.size}")
+          }
+          nextCorrelationId += 1
+
+        case Attempt.Failure(err) => log.error(s"Error encoding: ${err.messageWithContext}")
+      }
+    case Ack(ack) => acknowledge(ack)
+    case CommandFailed(Write(_, Ack(ack))) =>
+      connection ! ResumeWriting
+      context become buffering(nack = ack, toAck = 10, peerClosed = false)
+
+    case Received(data) => read(data)
+    case PeerClosed =>
+      if (writeBuffer.isEmpty) context stop self
+      else context become closing
+
+    case Aborted => goReconnect()
+    case Closed  => goReconnect()
+
+  }
+
+  def buffering(nack: Int, toAck: Int, peerClosed: Boolean): Actor.Receive = {
+    case request: KafkaConnectionRequest =>
+      encodeEnvelope(nextCorrelationId, request) match {
+        case Attempt.Successful(msg) =>
+          buffer(msg)
+          inFlightRequests += (nextCorrelationId -> Receiver(sender(), request, System.currentTimeMillis()))
+          if (request.trace) {
+            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${msg.size}")
+          }
+          nextCorrelationId += 1
+
+        case Attempt.Failure(err) => log.error(s"Error encoding: ${err.messageWithContext}")
       }
 
-    case CommandFailed(w: Write) => log.warning(s"Failed to write... $w")
+    case WritingResumed         => writeFirst()
+    case Received(data)         => read(data)
+    case PeerClosed             => context.become(buffering(nack, toAck, peerClosed = true))
+    case Aborted                => goReconnect()
+    case Closed                 => goReconnect()
 
-    case Received(data) =>
-      val newBuffer = state.buffer ++ data
-      if (newBuffer.size === state.bytesToRead) {
-        decodeEnvelope(newBuffer) match {
-          case Attempt.Successful(env) =>
-            state.inFlightRequests.get(env.correlationId) match {
-              case Some(receiver) =>
-                if (receiver.trace) {
-                  log.debug(s"Response for ${env.correlationId} -> ${env.response.toHex}")
-                }
-                receiver.address ! Status.Success(env.response)
-              case None => log.warning(s"There was no receiver for ${env.correlationId}")
-            }
-            context.become(connected(state.toConnectedWithoutCorrelationId(env.correlationId)))
-
-          case Attempt.Failure(err) =>
-            log.warning(s"Error encoding: ${err.messageWithContext}")
-            context.become(connected(state.toConnected))
+    case Ack(ack) if ack < nack => acknowledge(ack)
+    case Ack(ack) =>
+      acknowledge(ack)
+      if (writeBuffer.nonEmpty) {
+        if (toAck > 0) {
+          // stay in ACK-based mode for a while
+          writeFirst()
+          context.become(buffering(nack, toAck - 1, peerClosed))
+        } else {
+          // then return to NACK-based again
+          writeAll()
+          context become (if (peerClosed) closing else connected)
         }
-      } else {
-        context.become(buffering(state.copy(buffer = newBuffer)))
-      }
+      } else if (peerClosed) context stop self
+      else context become connected
+  }
 
-    case _: ConnectionClosed =>
-      pool ! KafkaConnectionPool.BrokerDown(self, broker)
-      context.become(connecting(0))
-      reconnect(0)
+  def closing: Actor.Receive = {
+    case CommandFailed(_: Write) =>
+      connection ! ResumeWriting
+      context.become({
+
+        case WritingResumed =>
+          writeAll()
+          context.unbecome()
+
+        case ack: Int => acknowledge(ack)
+
+      }, discardOld = false)
+
+    case Ack(ack) =>
+      acknowledge(ack)
+      if (writeBuffer.isEmpty) context stop self
   }
 
   def receive = connecting(timesTriedToConnect = 0)
@@ -186,19 +270,15 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
   def encodeEnvelope(correlationId: Int, request: KafkaConnectionRequest) = {
     RequestEnvelope.codec.encode(RequestEnvelope(request.apiKey, request.version, correlationId, Some("flumina"), request.requestPayload)).map { bytes =>
 
-      val msg = bytes.toByteVector.toByteString
+      val msg = bytes.toByteString
       val msgSize = msg.size
       val header = ByteString((msgSize >> 24) & 0xFF, (msgSize >> 16) & 0xFF, (msgSize >> 8) & 0xFF, msgSize & 0xFF)
-
-      if (request.trace) {
-        log.debug(s"Request $correlationId encoded ($msgSize) -> ${bytes.toHex}")
-      }
 
       header ++ msg
     }
   }
 
-  def decodeEnvelope(byteString: ByteString) = ResponseEnvelope.codec.decodeValue(byteString.toByteVector.toBitVector)
+  def decodeEnvelope(byteString: ByteString) = ResponseEnvelope.codec.decodeValue(byteString.toBitVector)
 }
 
 object KafkaConnection {

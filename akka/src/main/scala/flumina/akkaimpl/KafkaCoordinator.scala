@@ -5,11 +5,14 @@ import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import cats.data.Xor
 import cats.implicits._
-import flumina.akkaimpl.versions.V0
-import flumina.types.ir.{KafkaError, Metadata, OffsetMetadata, Record, TopicPartition, TopicPartitionResult}
-import flumina.types.{KafkaResult, kafka}
+import cats.kernel.Monoid
+import flumina.core.ir._
+import flumina.core.v090.V090
+import flumina.core.{KafkaResult, kafka, splitter}
+import scodec.bits.BitVector
 
 import scala.concurrent.Future
+import scala.util.control.NonFatal
 
 final class KafkaCoordinator private (settings: KafkaSettings) extends Actor with ActorLogging with Stash {
 
@@ -17,168 +20,121 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
 
   private implicit val timeout: Timeout = Timeout(settings.requestTimeout) //TODO: is this the right place for this??
 
-  private val defaultContext = KafkaContext(
-    connectionPool = context.actorOf(KafkaConnectionPool.props(settings.bootstrapBrokers, settings.connectionsPerBroker)),
-    broker = KafkaBroker.AnyNode,
-    requestTimeout = Timeout(settings.requestTimeout),
-    settings = settings.operationalSettings
-  )
+  private val connectionPool = context.actorOf(KafkaConnectionPool.props(settings.bootstrapBrokers, settings.connectionsPerBroker))
+  private val defaultContext = KafkaContext(broker = KafkaBroker.AnyNode, settings = settings.operationalSettings)
+  private val interpreter = new V090[Future](x => connectionPool.ask(x).mapTo[BitVector])
 
-  abstract class RequestSplitter[V, R, BM] {
-    def split(brokerMap: Map[BM, KafkaBroker], values: V): Map[KafkaBroker, V]
-    def canRetry(values: V, results: List[TopicPartitionResult[R]]): V
-    def topicPartitions(values: V): Set[TopicPartition]
-    def brokerMapIds(values: V): Set[String]
-    def requestNewBrokerMap(ids: Set[String]): Future[Map[BM, KafkaBroker]]
-    def run(values: V, broker: KafkaBroker): Future[KafkaError Xor List[TopicPartitionResult[R]]]
-  }
+  def splitRun[L[_], I, O](s: splitter.RequestSplitter[L, I])(brokerMap: Map[TopicPartition, KafkaBroker], initialRequest: L[I])(runner: L[I] => kafka.Dsl[TopicPartitionResults[O]]): Future[TopicPartitionResults[O]] = {
 
-  abstract class GroupRequestSplitter[V, R](groupId: String) extends RequestSplitter[V, R, String] {
+    def rerun(retries: Int, originalRequest: L[I], resp: TopicPartitionResults[O]) = for {
+      newBrokerMap <- syncMetadataInfo(resp.canBeRetried.map(_.topic))
+      _ <- FutureUtils.delay(defaultContext.settings.retryBackoff)
+      retryResults <- Monoid.combineAll {
+        s.split(newBrokerMap, s.canRetry(originalRequest, resp.canBeRetried))
+          .map { case (newBroker, newRequest) => Future.successful(resp.resultsExceptWhichCanBeRetried) |+| run(retries = retries + 1)(broker = newBroker, request = newRequest) }
+      }
+    } yield retryResults
 
-    def split(brokerMap: Map[String, KafkaBroker], values: V) =
-      Map(brokerMap.getOrElse(groupId, defaultContext.broker) -> values)
-
-    def requestNewBrokerMap(ids: Set[String]) =
-      self.ask(SyncGroup(groupId)).mapTo[Map[String, KafkaBroker]]
-
-    def brokerMapIds(values: V): Set[String] =
-      Set(groupId)
-  }
-
-  final class TopicPartitionRequestSplitter[Req, Resp](f: (Map[TopicPartition, Req], KafkaBroker) => Future[KafkaError Xor List[TopicPartitionResult[Resp]]]) extends RequestSplitter[Map[TopicPartition, Req], Resp, TopicPartition] {
-    def split(brokerMap: Map[TopicPartition, KafkaBroker], values: Map[TopicPartition, Req]) =
-      values
-        .map { case (tp, msgs) => (brokerMap.getOrElse(tp, defaultContext.broker), tp, msgs) }
-        .groupBy { case (broker, _, _) => broker }
-        .map { case (broker, topicPartitionMessages) => broker -> topicPartitionMessages.map(x => x._2 -> x._3).toMap }
-
-    def run(values: Map[TopicPartition, Req], broker: KafkaBroker) =
-      f(values, broker)
-
-    def canRetry(values: Map[TopicPartition, Req], results: List[TopicPartitionResult[Resp]]) =
-      (for {
-        result <- results.filter(x => KafkaResult.canRetry(x.kafkaResult))
-        //TODO: is this something we could improve upon ? No error thrown here, but maybe it should???
-        messages <- values.get(result.topicPartition).toList
-      } yield result.topicPartition -> messages).toMap
-
-    def topicPartitions(values: Map[TopicPartition, Req]) =
-      values.keySet
-
-    def requestNewBrokerMap(ids: Set[String]) =
-      self.ask(SyncMetadata(ids)).mapTo[Map[TopicPartition, KafkaBroker]]
-
-    def brokerMapIds(values: Map[TopicPartition, Req]) =
-      values.keySet.map(_.topic)
-  }
-
-  def commitOffsetSplitter(groupId: String) = new GroupRequestSplitter[Map[TopicPartition, OffsetMetadata], Unit](groupId) {
-    def canRetry(values: Map[TopicPartition, OffsetMetadata], results: List[TopicPartitionResult[Unit]]): Map[TopicPartition, OffsetMetadata] =
-      (for {
-        result <- results.filter(x => KafkaResult.canRetry(x.kafkaResult))
-        offsetMetadata <- values.get(result.topicPartition).toList
-      } yield result.topicPartition -> offsetMetadata).toMap
-
-    def topicPartitions(values: Map[TopicPartition, OffsetMetadata]): Set[TopicPartition] = values.keySet
-
-    def run(values: Map[TopicPartition, OffsetMetadata], broker: KafkaBroker) =
-      runWithBroker(kafka.offsetCommit(groupId, values), broker)
-  }
-
-  def fetchOffsetSplitter(groupId: String) = new GroupRequestSplitter[Set[TopicPartition], OffsetMetadata](groupId) {
-
-    def canRetry(values: Set[TopicPartition], results: List[TopicPartitionResult[OffsetMetadata]]) =
-      results.filter(x => KafkaResult.canRetry(x.kafkaResult))
-        .map(_.topicPartition)
-        .toSet
-
-    def topicPartitions(values: Set[TopicPartition]) = values
-
-    def run(values: Set[TopicPartition], broker: KafkaBroker) =
-      runWithBroker(kafka.offsetFetch(groupId, values), broker)
-  }
-
-  val fetchRequestSplitter =
-    new TopicPartitionRequestSplitter((values: Map[TopicPartition, Long], broker: KafkaBroker) => runWithBroker(kafka.fetch(values), broker))
-
-  val produceRequestSplitter =
-    new TopicPartitionRequestSplitter((values: Map[TopicPartition, List[Record]], broker: KafkaBroker) => runWithBroker(kafka.produce(values), broker))
-
-  def splitRun[V, R, BM](splitter: RequestSplitter[V, R, BM])(brokerMap: Map[BM, KafkaBroker], initialRequest: V)(implicit H: HasSize[V]) = {
-
-    def run(retries: Int, broker: KafkaBroker, request: V, results: Result[R]): Future[Result[R]] = {
-      log.debug(s"Split run -> Try $retries [broker: $broker]")
-
+    def run(retries: Int)(broker: KafkaBroker, request: L[I]): Future[TopicPartitionResults[O]] = {
       for {
-        resp <- splitter.run(request, broker)
-        res <- resp match {
-          case Xor.Left(err) =>
-            val topicPartitionErrors = splitter.topicPartitions(request)
-            log.error(s"Error ($err) for $topicPartitionErrors")
-            Future.successful(results |+| Result(Set.empty, topicPartitionErrors))
-
-          case Xor.Right(topicPartitionResults) =>
-
-            log.debug(s"Results from request $retries: ${topicPartitionResults.map(x => x.topicPartition -> x.kafkaResult)} [success: ${results.success.map(x => x.topicPartition -> x.kafkaResult)}, error: ${results.errors}]")
-
-            val canRetry = splitter.canRetry(request, topicPartitionResults)
-            def errorsWithoutRetries = topicPartitionResults.filter(x => x.kafkaResult != KafkaResult.NoError && !KafkaResult.canRetry(x.kafkaResult))
-            def errors = topicPartitionResults.filter(x => x.kafkaResult != KafkaResult.NoError)
-            def success = topicPartitionResults.filter(x => x.kafkaResult == KafkaResult.NoError)
-            def newResultsWithoutRetries = results |+| Result(success.toSet, errorsWithoutRetries.map(_.topicPartition).toSet)
-            def newResultsWithCurrentErrors = Future.successful(results |+| Result(success.toSet, errors.map(_.topicPartition).toSet))
-
-            if (H.nonEmpty(canRetry) && retries < defaultContext.settings.retryMaxCount) {
-              log.error(s"We encountered several requests which can be retried: ${H.size(canRetry)}")
-
-              val rerun = for {
-
-                newBrokerMap <- splitter.requestNewBrokerMap(splitter.brokerMapIds(request))
-
-                _ <- FutureUtils.delay(defaultContext.settings.retryBackoff)
-
-                retryResults <- Future.sequence {
-                  splitter
-                    .split(newBrokerMap, canRetry)
-                    .map { case (newBroker, newRequest) => run(retries = retries + 1, broker = newBroker, request = newRequest, results = newResultsWithoutRetries) }
-                }
-
-              } yield retryResults.foldLeft(Result.zero[R])(_ |+| _)
-
-              //if the rerun fails, due a timeout for example we can fallback to a error case
-              rerun fallbackTo newResultsWithCurrentErrors
-            } else {
-              newResultsWithCurrentErrors
-            }
+        resp <- runWithBroker(runner(request), broker)
+        res <- if (resp.canBeRetried.nonEmpty && retries < defaultContext.settings.retryMaxCount) {
+          log.info(s"errors: ${resp.errors}")
+          rerun(retries, request, resp)
+        } else {
+          Future.successful(resp)
         }
       } yield res
     }
 
-    Future.sequence {
-      splitter.split(brokerMap, initialRequest)
-        .map { case (broker, newRequest) => run(retries = 0, broker = broker, request = newRequest, results = Result.zero) }
-    }.map(x => x.foldLeft(Result.zero[R])(_ |+| _))
+    Monoid.combineAll(s.split(brokerMap, initialRequest).map { case (broker, values) => run(0)(broker, values) })
   }
 
   def receive = running(State(Map(), Map(), Map(), Map()))
 
+  def syncMetadataInfo(ids: Set[String]) = self.ask(SyncMetadata(ids)).mapTo[Map[TopicPartition, KafkaBroker]]
+  def syncGroupInfo(groupId: String) = self.ask(SyncGroup(groupId)).mapTo[Map[String, KafkaBroker]]
+
+  def getBrokerByGroupId(brokerMap: Map[String, KafkaBroker], groupId: String) = brokerMap.get(groupId) match {
+    case Some(broker) => Future.successful(broker)
+    case None         => syncGroupInfo(groupId).map(x => x.getOrElse(groupId, KafkaBroker.AnyNode))
+  }
+
+  def runXorCall[A](broker: KafkaBroker, dsl: kafka.Dsl[KafkaResult Xor A]) = {
+    def run(tries: Int, lastError: KafkaResult): Future[KafkaResult Xor A] = {
+      if (tries < defaultContext.settings.retryMaxCount) {
+        for {
+          result <- runWithBroker(dsl, broker)
+          next <- result match {
+            case Xor.Left(err) if KafkaResult.canRetry(err) =>
+              FutureUtils.delay(defaultContext.settings.retryBackoff) flatMap (_ => run(tries + 1, err))
+            case Xor.Left(err) =>
+              Future.successful(Xor.left(err))
+            case Xor.Right(res) =>
+              Future.successful(Xor.right(res))
+          }
+        } yield next
+      } else {
+        Future.successful(Xor.left(lastError))
+      }
+    }
+
+    run(0, KafkaResult.NoError)
+  }
+
+  def runGroupXorCall[A](groupId: String, brokerMap: Map[String, KafkaBroker], dsl: kafka.Dsl[KafkaResult Xor A]) =
+    for {
+      broker <- getBrokerByGroupId(brokerMap, groupId)
+      result <- runXorCall(broker, dsl)
+    } yield result
+
   def running(state: State): Receive = {
 
-    case OffsetsFetch(groupId, values) =>
-      splitRun(fetchOffsetSplitter(groupId))(brokerMap = state.byGroupId, initialRequest = values) pipeTo sender()
+    case KafkaCoordinator.JoinGroup(groupId, memberId, protocol, protocols) =>
+      runGroupXorCall(groupId, state.byGroupId, kafka.joinGroup(groupId, memberId, protocol, protocols)) pipeTo sender()
 
-    case OffsetsCommit(groupId, offsets) =>
-      splitRun(commitOffsetSplitter(groupId))(brokerMap = state.byGroupId, initialRequest = offsets) pipeTo sender()
+    case KafkaCoordinator.SynchronizeGroup(groupId, generationId, memberId, assignments) =>
+      runGroupXorCall(groupId, state.byGroupId, kafka.syncGroup(groupId, generationId, memberId, assignments)) pipeTo sender()
 
-    case Fetch(values) =>
-      splitRun(fetchRequestSplitter)(brokerMap = state.byTopicPartition, initialRequest = values) pipeTo sender()
+    case KafkaCoordinator.Heartbeat(groupId, generationId, memberId) =>
+      runGroupXorCall(groupId, state.byGroupId, kafka.heartbeat(groupId, generationId, memberId)) pipeTo sender()
 
-    case Produce(values) =>
-      splitRun(produceRequestSplitter)(brokerMap = state.byTopicPartition, initialRequest = values) pipeTo sender()
+    case KafkaCoordinator.OffsetsFetch(groupId, values) =>
+      (for {
+        broker <- getBrokerByGroupId(state.byGroupId, groupId)
+        result <- runWithBroker(kafka.offsetFetch(groupId, values), broker)
+      } yield result) pipeTo sender()
+
+    case KafkaCoordinator.OffsetsCommit(groupId, generationId, memberId, offsets) =>
+      (for {
+        broker <- getBrokerByGroupId(state.byGroupId, groupId)
+        result <- runWithBroker(kafka.offsetCommit(groupId, generationId, memberId, offsets), broker)
+      } yield result) pipeTo sender()
+
+    case KafkaCoordinator.Fetch(values) =>
+      splitRun(splitter.Fetch)(state.byTopicPartition, values)(kafka.fetch) pipeTo sender()
+
+    case KafkaCoordinator.Produce(values) =>
+      splitRun(splitter.Produce)(state.byTopicPartition, values)(kafka.produce) pipeTo sender()
+
+    case KafkaCoordinator.ListGroups =>
+      (for {
+        metadata <- runOnAnyBroker(kafka.metadata(Set.empty))
+        groups <- Monoid.combineAll(metadata.brokers.map(b => runXorCall(KafkaBroker.Node(b.host, b.port), kafka.listGroups)))
+      } yield groups) pipeTo sender()
+
+    case KafkaCoordinator.Metadata(topics) =>
+      runMetadata(0, topics) pipeTo sender()
+
+    case KafkaCoordinator.GroupCoordinator(groupId) =>
+      runXorCall(KafkaBroker.AnyNode, kafka.groupCoordinator(groupId)) pipeTo sender()
+
+    case KafkaCoordinator.LeaveGroup(groupId, memberId) =>
+      runGroupXorCall(groupId, state.byGroupId, kafka.leaveGroup(groupId, memberId)) pipeTo sender()
 
     case SyncMetadata(topicsToSync) =>
       if (topicsToSync == state.topicsInSync.keySet) {
-        log.info("Concurrent sync request, but we are already on it! Adding to subscriber list.")
+        log.info("Concurrent sync metadata request, but we are already on it! Adding to subscriber list.")
         context.become(running(state.copy(topicsInSync = state.topicsInSync |+| topicsToSync.map(topic => topic -> List(sender())).toMap)))
       } else {
         val topics = topicsToSync -- state.topicsInSync.keySet
@@ -187,8 +143,9 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
       }
 
     case SyncGroup(group) =>
+      log.info(s"syncing group: $group")
       if (state.groupsInSync.keySet.contains(group)) {
-        log.info("Concurrent sync request, but we are already on it! Adding to subscriber list.")
+        log.info("Concurrent sync group request, but we are already on it! Adding to subscriber list.")
       } else {
         syncGroup(group)
       }
@@ -239,42 +196,60 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
         .foreach(refs => refs.foreach(_ ! Status.Failure(new Exception(s"Failed to sync groupId: $groupId"))))
 
       context.become(running(state.copy(groupsInSync = state.groupsInSync - groupId)))
+
+    case Status.Failure(err) => log.error(err, "Error occurred")
   }
 
-  def syncMetadata(topics: Set[String]) = {
+  def runMetadata(retries: Int, topicsToSync: Set[String]): Future[Metadata] = {
+    for {
+      result <- runOnAnyBroker(kafka.metadata(topicsToSync))
+      next <- if (result.topicsWhichCanBeRetried.nonEmpty && retries < defaultContext.settings.retryMaxCount) {
+        Future.successful(result.withoutRetryErrors) |+| (FutureUtils.delay(defaultContext.settings.retryBackoff) flatMap (_ => runMetadata(retries + 1, result.topicsWhichCanBeRetried)))
+      } else {
+        Future.successful(result)
+      }
+    } yield next
+  }
+
+  def syncMetadata(topics: Set[String]): Future[MetadataSyncResult] = {
 
     def toBrokerMap(metadata: Metadata): Map[TopicPartition, KafkaBroker] = (for {
-      topicPartitionResult <- metadata.metadata
-      //TODO: is this something we could improve upon ? No error thrown here, but maybe it should???
-      broker <- metadata.brokers.find(_.nodeId == topicPartitionResult.value.leader).toList
-    } yield topicPartitionResult.topicPartition -> KafkaBroker.Node(broker.host, broker.port)).toMap
+      topics <- metadata.topics
+      map = topics.onlyRight match {
+        case None => Map.empty[TopicPartition, KafkaBroker]
+        case Some(topicInfos) => (for {
+          topicInfo <- topicInfos
+          broker <- metadata.brokers.find(b => b.nodeId == topicInfo.result.leader).toList
+        } yield topicInfo.topicPartition -> KafkaBroker.Node(broker.host, broker.port)).toMap
+      }
+    } yield map) getOrElse Map.empty[TopicPartition, KafkaBroker]
 
-    runOnAnyBroker(kafka.metadata(topics))
-      .map(x => x.fold[MetadataSyncResult](err => MetadataSyncResult.Failed(topics, err), metadata => MetadataSyncResult.Success(toBrokerMap(metadata))))
+    runMetadata(0, topics)
+      .map(metadata => MetadataSyncResult.Success(toBrokerMap(metadata)))
+      .recoverWith {
+        case NonFatal(ex) => Future.successful[MetadataSyncResult](MetadataSyncResult.Failed(topics, ex))
+      }
       .pipeTo(self)
   }
 
   def syncGroup(groupId: String) =
-    runOnAnyBroker(kafka.groupCoordinator(groupId))
+    runXorCall(KafkaBroker.AnyNode, kafka.groupCoordinator(groupId))
       .map(x => x.fold[GroupSyncResult](err => GroupSyncResult.Failed(groupId, err), broker => GroupSyncResult.Success(Map(groupId -> KafkaBroker.Node(broker.host, broker.port)))))
       .pipeTo(self)
 
-  //TODO: select this automagically
-  val interpreter = new V0()
-
   def runOnAnyBroker[A](dsl: kafka.Dsl[A]) = run(dsl, defaultContext)
   def runWithBroker[A](dsl: kafka.Dsl[A], broker: KafkaBroker) = run(dsl, defaultContext.copy(broker = broker))
-  def run[A](dsl: kafka.Dsl[A], brokerContext: KafkaContext) = dsl(interpreter).value.run(brokerContext)
+  def run[A](dsl: kafka.Dsl[A], brokerContext: KafkaContext) = dsl(interpreter).run(brokerContext)
 
   sealed trait MetadataSyncResult
   object MetadataSyncResult {
-    sealed case class Failed(topics: Set[String], kafkaError: KafkaError) extends MetadataSyncResult
+    sealed case class Failed(topics: Set[String], error: Throwable) extends MetadataSyncResult
     sealed case class Success(brokerMap: Map[TopicPartition, KafkaBroker]) extends MetadataSyncResult
   }
 
   sealed trait GroupSyncResult
   object GroupSyncResult {
-    sealed case class Failed(groupId: String, kafkaError: KafkaError) extends GroupSyncResult
+    sealed case class Failed(groupId: String, kafkaError: KafkaResult) extends GroupSyncResult
     sealed case class Success(brokerMap: Map[String, KafkaBroker]) extends GroupSyncResult
   }
 
@@ -287,10 +262,20 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
     byTopicPartition: Map[TopicPartition, KafkaBroker],
     byGroupId:        Map[String, KafkaBroker]
   )
-
 }
 
 object KafkaCoordinator {
+  protected[akkaimpl] final case class OffsetsFetch(groupId: String, values: Set[TopicPartition])
+  protected[akkaimpl] final case class OffsetsCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata])
+  protected[akkaimpl] final case class Produce(values: List[(TopicPartition, Record)])
+  protected[akkaimpl] final case class JoinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol])
+  protected[akkaimpl] final case class SynchronizeGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment])
+  protected[akkaimpl] final case class Heartbeat(groupId: String, generationId: Int, memberId: String)
+  protected[akkaimpl] final case class Fetch(values: Map[TopicPartition, Long])
+  protected[akkaimpl] final case class LeaveGroup(groupId: String, memberId: String)
+  protected[akkaimpl] final case class GroupCoordinator(groupId: String)
+  protected[akkaimpl] final case class Metadata(topics: Set[String])
+  protected[akkaimpl] final case object ListGroups
+
   def props(settings: KafkaSettings) = Props(new KafkaCoordinator(settings))
 }
-

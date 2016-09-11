@@ -7,6 +7,8 @@ import cats.implicits._
 import scala.concurrent.duration._
 import scala.util.Random
 
+import flumina.core.ir._
+
 final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node], connectionsPerBroker: Int) extends Actor with ActorLogging {
 
   import context.system
@@ -18,7 +20,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
 
   //Append the stashed request to the list, but drop the tail. We can do this, because the requests will timeout eventually
   private def append(stashedRequest: StashedRequest, stashedRequestsBuffer: List[StashedRequest]) =
-    stashedRequest :: stashedRequestsBuffer.take(99)
+    stashedRequest :: stashedRequestsBuffer.take(999)
 
   def randomNode(nodes: Set[ActorRef]) =
     if (nodes.nonEmpty) Some(nodes.iterator.drop(Random.nextInt(nodes.size)).next())
@@ -41,28 +43,24 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
       }
 
     case kafkaBrokerRequest @ KafkaBrokerRequest(node: KafkaBroker.Node, request) =>
-      //TODO: remove "localhost"
-      val tempNode = node.copy(host = "localhost")
-      val tempKafkaBrokerRequest = kafkaBrokerRequest.copy(broker = tempNode)
-
-      connections.get(tempNode) match {
+      connections.get(node) match {
         case Some(nodes) =>
-          log.debug(s"$node found in connections, picking random one to forward to it")
+          log.debug(s"[api-key: ${request.apiKey}] $node found in connections, picking random one to forward to it ${nodes.size}")
           randomNode(nodes).foreach(_ forward request)
         case None =>
-          if (connectionsBeingSpawned.contains(tempNode)) {
+          if (connectionsBeingSpawned.contains(node)) {
             log.debug(s"$node not found in connections, but is already being spawned")
-            context.become(running(connectionsBeingSpawned, append(StashedRequest(sender(), tempKafkaBrokerRequest), stashedRequestsBuffer), connections))
+            context.become(running(connectionsBeingSpawned, append(StashedRequest(sender(), kafkaBrokerRequest), stashedRequestsBuffer), connections))
           } else {
             log.debug(s"$node not found in connections, SPAWNING!!")
-            spawnConnections(tempNode)
-            context.become(running(connectionsBeingSpawned + tempNode, append(StashedRequest(sender(), tempKafkaBrokerRequest), stashedRequestsBuffer), connections))
+            spawnConnections(node)
+            context.become(running(connectionsBeingSpawned + node, append(StashedRequest(sender(), kafkaBrokerRequest), stashedRequestsBuffer), connections))
           }
       }
 
     case KafkaConnectionPool.BrokerUp(connection, node) =>
       val (matched, nonMatched) = stashedRequestsBuffer.partition(_.request.matchesBroker(node))
-      log.info(s"Broker up $node | [$matched and $nonMatched]")
+      log.info(s"Broker up $node")
       matched.foreach(x => self.tell(x.request, x.from))
       context.become(running(connectionsBeingSpawned - node, nonMatched, connections |+| Map(node -> Set(connection))))
 
@@ -78,7 +76,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
   )
 
   private def connId(broker: KafkaBroker.Node, nr: Int) =
-    s"$nr:localhost:${broker.port}" //TODO: remove localhost
+    s"$nr:${broker.host}:${broker.port}"
 
   private def spawnConnections(broker: KafkaBroker.Node): Unit = {
     log.info(s"Spawning $connectionsPerBroker connections for $broker")

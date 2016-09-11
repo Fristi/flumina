@@ -8,7 +8,7 @@ import kafka.utils.ZkUtils
 import scala.util.control.NonFatal
 
 object Utils {
-  def createTopic(name: String, partitions: Int = 1, replicationFactor: Int = 1, zookeeperPort: Int = 2181) = {
+  def createTopic(name: String, partitions: Int, replicationFactor: Int, zookeeperPort: Int) = {
     val port = zookeeperPort
     val zkUtils = ZkUtils(zkUrl = s"localhost:$port", sessionTimeout = 10000, connectionTimeout = 10000, isZkSecurityEnabled = false)
 
