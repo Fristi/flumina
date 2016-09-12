@@ -20,24 +20,8 @@ object Main extends App {
   implicit val actorSystem: ActorSystem = ActorSystem()
   implicit val materializer: ActorMaterializer = ActorMaterializer()
 
-  val settings = KafkaSettings(
-    bootstrapBrokers = Seq(KafkaBroker.Node("localhost", 9092)),
-    connectionsPerBroker = 3,
-    operationalSettings = KafkaOperationalSettings(
-      retryBackoff = 500.milliseconds,
-      retryMaxCount = 5,
-      fetchMaxBytes = 128 * 1024, // 1mb?
-      fetchMaxWaitTime = 5.milliseconds,
-      produceTimeout = 1.seconds,
-      groupSessionTimeout = 30.seconds,
-      heartbeatFrequency = 4,
-      consumeAssignmentStrategy = ConsumeAssignmentStrategy.allToLeader
-    ),
-    requestTimeout = 30.seconds
-  )
-  val client = KafkaClient(settings)
-
-  val topic = "test3" //Utils.randomTopic(partitions = 10, replicationFactor = 1)
+  val client = KafkaClient()
+  val topic = "test9" //Utils.randomTopic(partitions = 10, replicationFactor = 1)
 
   Utils.createTopic(topic, 10, 1)
 
@@ -49,14 +33,14 @@ object Main extends App {
   client.consume(groupId = s"somegroup${System.currentTimeMillis()}", TopicPartition.enumerate(topic, nrPartitions = 10))
     .grouped(5000)
     .to(Sink.foreach(_ => consumeMeter.mark(5000)))
-  //    .run()
+    .run()
 
   Source.cycle(() => (1 to 10).iterator)
-    .map(x => TopicPartition(topic, x % 10) -> Record(ByteVector.empty, ByteVector((1 to 1).map(_.toByte).toArray)))
-    .grouped(500)
+    .map(x => TopicPartition(topic, x % 10) -> Record(ByteVector.empty, ByteVector((1 to 100).map(_.toByte).toArray)))
+    .grouped(1000)
     .mapAsyncUnordered(10)(x => client.produce(x.toList))
-    .to(Sink.foreach(_ => produceDownstream.mark(500)))
-    .run()
+    .to(Sink.foreach(_ => produceDownstream.mark(1000)))
+  //    .run()
 
   Source.tick(0.seconds, 1.seconds, ())
     .runForeach(_ => println(s"consume: ${consumeMeter.getMeanRate}, produce: (${produceUpstream.getMeanRate}/${produceDownstream.getMeanRate})"))

@@ -44,7 +44,6 @@ final class KafkaConsumer private (groupId: String, topicPartitions: Set[TopicPa
     case FetchResult(fetchResults, commitResults) =>
       if (commitResults.errors.nonEmpty || fetchResults.errors.nonEmpty) {
         if (commitResults.errors.exists(x => x.result == KafkaResult.RebalanceInProgress || x.result == KafkaResult.IllegalGeneration)) {
-          println(s"errors: ${commitResults.errors}")
           join(Some(state.memberId))
           context.become(joining)
         } else {
@@ -144,13 +143,11 @@ final class KafkaConsumer private (groupId: String, topicPartitions: Set[TopicPa
 
   private def joinGroup(memberId: Option[String]): KafkaFailure[Future, (JoinGroupResult, Map[TopicPartition, Long])] = for {
     gr <- fromAsyncXor(client.joinGroup(groupId, memberId, "consumer", Seq(GroupProtocol("range", Seq(ConsumerProtocol(0, topicPartitions.map(_.topic).toSeq, ByteVector.empty))))))
-    _ = println(s"gr: $gr")
     memberAssignment <- if (gr.leaderId == gr.memberId) {
       fromAsyncXor(client.syncGroup(groupId, gr.generationId, gr.memberId, settings.consumeAssignmentStrategy.assign(gr.leaderId, topicPartitions, gr.members)))
     } else {
       fromAsyncXor(client.syncGroup(groupId, gr.generationId, gr.memberId, Seq.empty))
     }
-    _ = println(s"memberAssignment: $memberAssignment")
     offsets <- fromAsync(client.offsetFetch(groupId, memberAssignment.topicPartitions.toSet))
   } yield gr -> offsets.success.map(x => x.topicPartition -> (if (x.result.offset == -1) 0l else x.result.offset)).toMap
 

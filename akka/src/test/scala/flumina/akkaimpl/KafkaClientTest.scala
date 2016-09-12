@@ -4,8 +4,9 @@ import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.testkit.scaladsl.TestSink
-import akka.testkit.TestKit
+import akka.testkit.{TestKit}
 import cats.scalatest.{XorMatchers, XorValues}
+import com.typesafe.config.ConfigFactory
 import flumina.core.KafkaFailure
 import flumina.core.ir._
 import org.scalatest._
@@ -14,20 +15,17 @@ import scodec.bits.ByteVector
 
 import scala.annotation.tailrec
 import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
 
-abstract class KafkaClientTest extends TestKit(ActorSystem())
-    with WordSpecLike
-    with BeforeAndAfter
+abstract class KafkaClientTest extends Suite with WordSpecLike
+    with KafkaDockerTest
     with BeforeAndAfterAll
     with ScalaFutures
-    with KafkaDockerTest
     with Matchers
     with XorMatchers
     with XorValues
     with Inspectors
     with OptionValues {
-
-  import system.dispatcher
 
   "KafkaClient" should {
 
@@ -270,25 +268,16 @@ abstract class KafkaClientTest extends TestKit(ActorSystem())
   private def kafka1Port: Int = KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Unable to get port for kafka 1"))
   private def zookeeperPort: Int = 2181
 
-  private def deadServer(nr: Int) = KafkaBroker.Node(s"localhost", 12300 + nr)
+  implicit lazy val system: ActorSystem = {
+    def quote(str: String) = "\"" + str + "\""
+    val bootstrapBrokers = List(s"localhost:$kafka1Port").map(quote).mkString(",")
+    val bootstrapBrokersString = s"flumina.bootstrap-brokers = [$bootstrapBrokers]"
+    val kafkaConfig = ConfigFactory.parseString(bootstrapBrokersString)
 
-  private lazy val settings = KafkaSettings(
-    bootstrapBrokers = Seq(deadServer(1), deadServer(2), KafkaBroker.Node("localhost", kafka1Port)),
-    connectionsPerBroker = 1,
-    operationalSettings = KafkaOperationalSettings(
-      retryBackoff = 500.milliseconds,
-      retryMaxCount = 10,
-      fetchMaxBytes = 32 * 1024,
-      fetchMaxWaitTime = 100.milliseconds,
-      produceTimeout = 1.seconds,
-      groupSessionTimeout = 10.seconds,
-      heartbeatFrequency = 4,
-      consumeAssignmentStrategy = ConsumeAssignmentStrategy.allToLeader
-    ),
-    requestTimeout = 30.seconds
-  )
+    ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
+  }
 
-  private lazy val client = KafkaClient(settings)
+  private lazy val client = KafkaClient()
 
   trait KafkaScope {
     def randomTopic(partitions: Int, replicationFactor: Int) = {
@@ -304,7 +293,7 @@ abstract class KafkaClientTest extends TestKit(ActorSystem())
     lazy val topicPartition = TopicPartition(randomTopic(1, 1)._1, 0)
   }
 
-  private implicit val actorMaterializer = ActorMaterializer()(system)
+  private lazy implicit val actorMaterializer = ActorMaterializer()(system)
 
   override implicit def patienceConfig = PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
 
