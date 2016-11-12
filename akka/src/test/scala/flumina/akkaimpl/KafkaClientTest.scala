@@ -1,14 +1,12 @@
 package flumina.akkaimpl
 
 import akka.actor.ActorSystem
-import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Flow, Sink, Source}
-import akka.stream.testkit.scaladsl.TestSink
-import akka.testkit.{TestKit}
+import akka.testkit.TestKit
 import cats.scalatest.{XorMatchers, XorValues}
 import com.typesafe.config.ConfigFactory
 import flumina.core.KafkaFailure
 import flumina.core.ir._
+import flumina.core.v090.Compression
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 import scodec.bits.ByteVector
@@ -37,8 +35,9 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
       }
     }
 
-    "produce" in new KafkaScope {
-      whenReady(client.produce(List(topicPartition -> testRecord))) { result =>
+    "produceOne" in new KafkaScope {
+      whenReady(client.produceOne(TopicPartitionValue(topicPartition, testRecord))) { result =>
+
         result.success should have size 1
         result.errors should have size 0
 
@@ -47,18 +46,24 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
       }
     }
 
-    "fetch" in new KafkaScope {
+    "produceN & fetch" in new KafkaScope {
+
+      val topicPartitionValue = TopicPartitionValue(topicPartition, testRecord)
       val prg = for {
-        _ <- client.produce(List(topicPartition -> testRecord))
-        fetchResult <- client.fetch(Map(topicPartition -> 0l))
+        _ <- client.produceN(Compression.GZIP, List.tabulate(100)(_ => topicPartitionValue))
+        fetchResult <- client.fetch(Set(TopicPartitionValue(topicPartition, 0l)))
       } yield fetchResult
 
       whenReady(prg) { result =>
         result.success should have size 1
         result.errors should have size 0
 
-        result.success.head.result should have size 1
+        result.success.head.result should have size 100
         result.success.head.result.head.record shouldBe testRecord
+
+        forAll(result.success) { item =>
+          respectOrder(item.result)(_.offset) shouldBe true
+        }
       }
     }
 
@@ -90,11 +95,13 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
         userData = ByteVector("more-test".getBytes)
       )
 
+      val topicPartitionValue = TopicPartitionValue(topicPartition, testRecord)
+
       val prg = for {
-        produceResult <- fromAsync(client.produce(List(topicPartition -> testRecord, topicPartition -> testRecord)))
+        _ <- fromAsync(client.produceN(Compression.Snappy, List(topicPartitionValue, topicPartitionValue)))
         gr <- fromAsyncXor(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), ByteVector.empty))))))
         _ <- fromAsyncXor(client.syncGroup(groupId, gr.generationId, gr.memberId, Seq(GroupAssignment(gr.memberId, memberAssignment))))
-        fetchResult <- fromAsync(client.fetch(Map(topicPartition -> 0l)))
+        fetchResult <- fromAsync(client.fetch(Set(TopicPartitionValue(topicPartition, 0l))))
         offsetCommitResult <- fromAsync(client.offsetCommit(groupId, gr.generationId, gr.memberId, Map(topicPartition -> OffsetMetadata(fetchResult.success.head.result.maxBy(_.offset).offset, Some("metadata")))))
         offsetFetchResult <- fromAsync(client.offsetFetch(groupId, Set(topicPartition)))
       } yield offsetCommitResult -> offsetFetchResult
@@ -156,102 +163,12 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
       }
     }
 
-    "staged produce and consume" in new KafkaScope {
-      val group = s"test${System.currentTimeMillis()}"
-      val (topic1name, topic1parts) = randomTopic(partitions = 10, replicationFactor = 1)
-      val (topic2name, topic2parts) = randomTopic(partitions = 4, replicationFactor = 1)
-      val size = 100000
-      val producer = client.producer(grouped = 500, parallelism = 5)
-
-      Source(1 to size)
-        .map(x => TopicPartition(topic1name, x % 10) -> testRecord)
-        .runWith(producer)
-
-      client.consume(groupId = s"${group}_a", topic1parts)
-        .filter(x => x.recordEntry.offset % 16 < 4)
-        .map(_.recordEntry.offset)
-        .map(x => TopicPartition(topic2name, x.toInt % 4) -> testRecord)
-        .runWith(producer)
-
-      val results = client.consume(groupId = s"${group}_b", topic2parts)
-        .runWith(TestSink.probe[TopicPartitionRecordEntry])
-        .ensureSubscription()
-        .request(25000)
-        .expectNextN(25000)
-
-      def prg = for {
-        offsetGroupA <- client.offsetFetch(s"${group}_a", topic1parts)
-        offsetGroupB <- client.offsetFetch(s"${group}_b", topic2parts)
-      } yield offsetGroupA -> offsetGroupB
-
-      results.distinct should have size 25000
-
-      forAll(results.groupBy(_.topicPartition).values) { items =>
-        items should have size 6250
-        respectOrder(items)(x => x.recordEntry.offset) shouldBe true
-      }
-
-      Thread.sleep(500)
-
-      whenReady(prg) {
-        case (offsetGroupA, offsetGroupB) =>
-          offsetGroupA.errors should have size 0
-          offsetGroupA.success should have size 10
-
-          forAll(offsetGroupA.success)(_.result.offset shouldBe 9999l)
-
-          offsetGroupB.errors should have size 0
-          offsetGroupB.success should have size 4
-
-          forAll(offsetGroupB.success)(_.result.offset shouldBe 6249l)
-      }
-    }
-
     "listGroups" in new KafkaScope {
-      import KafkaFailure._
-
-      val prg = for {
-        _ <- fromAsyncXor(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), ByteVector.empty))))))
-        groups <- fromAsyncXor(client.listGroups)
-      } yield groups
-
-      whenReady(prg.value) { result =>
+      whenReady(client.listGroups) { result =>
         result.value shouldNot have size 0
       }
     }
-
-    "multiple joining consumers should rebalance" in new KafkaScope {
-
-      import KafkaFailure._
-
-      val (topicName, _) = randomTopic(1, 1)
-      val groupProtocols1 = Seq(GroupProtocol("range", Seq(ConsumerProtocol(0, Seq(topicName), ByteVector("Test".getBytes())))))
-      val groupProtocols2 = Seq(GroupProtocol("range", Seq(ConsumerProtocol(0, Seq(topicName), ByteVector("Test".getBytes())))))
-      val group = s"test${System.currentTimeMillis()}"
-      val memberAssignment = MemberAssignment(
-        version = 0,
-        topicPartitions = Seq(TopicPartition(topicName, 0)),
-        userData = ByteVector("more-test".getBytes)
-      )
-
-      val prg = for {
-        joinGroupResult1 <- fromAsyncXor(client.joinGroup(groupId = group, memberId = None, protocol = "consumer", protocols = groupProtocols1))
-        syncGroupResult1 <- fromAsyncXor(client.syncGroup(groupId = group, generationId = joinGroupResult1.generationId, memberId = joinGroupResult1.memberId, assignments = Seq(GroupAssignment(joinGroupResult1.memberId, memberAssignment))))
-        joinGroupResult2 <- fromAsyncXor(client.joinGroup(groupId = group, memberId = None, protocol = "consumer", protocols = groupProtocols2))
-        syncGroupResult2 <- fromAsyncXor(client.syncGroup(groupId = group, generationId = joinGroupResult2.generationId, memberId = joinGroupResult2.memberId, assignments = Seq(GroupAssignment(joinGroupResult2.memberId, memberAssignment))))
-      } yield joinGroupResult2 -> syncGroupResult2
-
-      whenReady(prg.value) { result =>
-        result should be(right)
-      }
-    }
   }
-
-  def counter(name: String) = Flow[TopicPartitionRecordEntry]
-    .grouped(500)
-    .scan(0)((acc, items) => acc + items.size)
-    .to(Sink.foreach(c => println(s"$name count: $c")))
-    .async
 
   def respectOrder[A](items: Seq[A])(f: (A => Long)) = {
     @tailrec
@@ -292,8 +209,6 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
     lazy val groupId = randomGroup
     lazy val topicPartition = TopicPartition(randomTopic(1, 1)._1, 0)
   }
-
-  private lazy implicit val actorMaterializer = ActorMaterializer()(system)
 
   override implicit def patienceConfig = PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
 

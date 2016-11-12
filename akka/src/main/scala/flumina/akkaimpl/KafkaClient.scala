@@ -2,13 +2,13 @@ package flumina.akkaimpl
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.ActorSystem
 import akka.pattern.ask
-import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.util.Timeout
 import cats.data.Xor
 import com.typesafe.config.Config
 import flumina.core.ir._
+import flumina.core.v090.Compression
 import flumina.core.{KafkaAlg, KafkaResult}
 
 import scala.collection.JavaConverters._
@@ -23,27 +23,21 @@ final class KafkaClient private (settings: KafkaSettings, actorSystem: ActorSyst
 
   private val coordinator = actorSystem.actorOf(KafkaCoordinator.props(settings))
 
-  def producer(grouped: Int, parallelism: Int) =
-    Flow[(TopicPartition, Record)]
-      .grouped(grouped)
-      .mapAsync(parallelism)(x => produce(x.toList))
-      .to(Sink.ignore)
-
-  def consume(groupId: String, topicPartitions: Set[TopicPartition]): Source[TopicPartitionRecordEntry, ActorRef] =
-    Source.actorPublisher[TopicPartitionRecordEntry](KafkaConsumer.props(groupId, topicPartitions, this, settings.operationalSettings))
-
   //TODO: should we check the invariant topicPartition.partition >= 0?
-  def produce(values: List[(TopicPartition, Record)]) =
-    (coordinator ? KafkaCoordinator.Produce(values)).mapTo[TopicPartitionResults[Long]]
+  def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]) =
+    (coordinator ? KafkaCoordinator.ProduceN(values, compression)).mapTo[TopicPartitionValues[Long]]
+
+  def produceOne(value: TopicPartitionValue[Record]) =
+    (coordinator ? KafkaCoordinator.ProduceOne(value)).mapTo[TopicPartitionValues[Long]]
 
   def offsetFetch(groupId: String, values: Set[TopicPartition]) =
-    (coordinator ? KafkaCoordinator.OffsetsFetch(groupId, values)).mapTo[TopicPartitionResults[OffsetMetadata]]
+    (coordinator ? KafkaCoordinator.OffsetsFetch(groupId, values)).mapTo[TopicPartitionValues[OffsetMetadata]]
 
   def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) =
-    (coordinator ? KafkaCoordinator.OffsetsCommit(groupId, generationId, memberId, offsets)).mapTo[TopicPartitionResults[Unit]]
+    (coordinator ? KafkaCoordinator.OffsetsCommit(groupId, generationId, memberId, offsets)).mapTo[TopicPartitionValues[Unit]]
 
-  def fetch(values: Map[TopicPartition, Long]) =
-    (coordinator ? KafkaCoordinator.Fetch(values)).mapTo[TopicPartitionResults[List[RecordEntry]]]
+  def fetch(values: Set[TopicPartitionValue[Long]]) =
+    (coordinator ? KafkaCoordinator.Fetch(values)).mapTo[TopicPartitionValues[List[RecordEntry]]]
 
   def joinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol]) =
     (coordinator ? KafkaCoordinator.JoinGroup(groupId, memberId, protocol, protocols)).mapTo[KafkaResult Xor JoinGroupResult]
@@ -96,7 +90,6 @@ object KafkaClient {
     val requestTimeout = getDuration("flumina.request-timeout")
     val retryMaxCount = config.getInt("flumina.retry-max-count")
     val fetchMaxBytes = config.getInt("flumina.fetch-max-bytes")
-    val heartbeatFrequency = config.getInt("flumina.heartbeat-frequency")
 
     val brokers = bootstrapBrokers.map { x =>
       val parts = x.split(":").toList
@@ -116,9 +109,7 @@ object KafkaClient {
         fetchMaxWaitTime,
         fetchMaxBytes,
         produceTimeout,
-        groupSessionTimeout,
-        heartbeatFrequency,
-        ConsumeAssignmentStrategy.allToLeader
+        groupSessionTimeout
       ),
       requestTimeout
     )

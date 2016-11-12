@@ -25,8 +25,6 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
   private final case class Ack(offset: Int) extends Tcp.Event
 
   private val maxStored = 100000000L
-  private val highWatermark = maxStored * 5 / 10
-  private val lowWatermark = maxStored * 3 / 10
 
   @SuppressWarnings(Array("org.wartremover.warts.Var"))
   private var readBuffer: ByteString = ByteString.empty

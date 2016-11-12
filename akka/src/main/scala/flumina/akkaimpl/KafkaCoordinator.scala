@@ -7,8 +7,8 @@ import cats.data.Xor
 import cats.implicits._
 import cats.kernel.Monoid
 import flumina.core.ir._
-import flumina.core.v090.V090
-import flumina.core.{KafkaResult, kafka, splitter}
+import flumina.core.v090.{Compression, V090}
+import flumina.core.{KafkaResult, kafka}
 import scodec.bits.BitVector
 
 import scala.concurrent.Future
@@ -23,32 +23,6 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
   private val connectionPool = context.actorOf(KafkaConnectionPool.props(settings.bootstrapBrokers, settings.connectionsPerBroker))
   private val defaultContext = KafkaContext(broker = KafkaBroker.AnyNode, settings = settings.operationalSettings)
   private val interpreter = new V090[Future](x => connectionPool.ask(x).mapTo[BitVector])
-
-  def splitRun[L[_], I, O](s: splitter.RequestSplitter[L, I])(brokerMap: Map[TopicPartition, KafkaBroker], initialRequest: L[I])(runner: L[I] => kafka.Dsl[TopicPartitionResults[O]]): Future[TopicPartitionResults[O]] = {
-
-    def rerun(retries: Int, originalRequest: L[I], resp: TopicPartitionResults[O]) = for {
-      newBrokerMap <- syncMetadataInfo(resp.canBeRetried.map(_.topic))
-      _ <- FutureUtils.delay(defaultContext.settings.retryBackoff)
-      retryResults <- Monoid.combineAll {
-        s.split(newBrokerMap, s.canRetry(originalRequest, resp.canBeRetried))
-          .map { case (newBroker, newRequest) => Future.successful(resp.resultsExceptWhichCanBeRetried) |+| run(retries = retries + 1)(broker = newBroker, request = newRequest) }
-      }
-    } yield retryResults
-
-    def run(retries: Int)(broker: KafkaBroker, request: L[I]): Future[TopicPartitionResults[O]] = {
-      for {
-        resp <- runWithBroker(runner(request), broker)
-        res <- if (resp.canBeRetried.nonEmpty && retries < defaultContext.settings.retryMaxCount) {
-          log.info(s"errors: ${resp.errors}")
-          rerun(retries, request, resp)
-        } else {
-          Future.successful(resp)
-        }
-      } yield res
-    }
-
-    Monoid.combineAll(s.split(brokerMap, initialRequest).map { case (broker, values) => run(0)(broker, values) })
-  }
 
   def receive = running(State(Map(), Map(), Map(), Map()))
 
@@ -82,6 +56,47 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
     run(0, KafkaResult.NoError)
   }
 
+  def split[A](brokerMap: Map[TopicPartition, KafkaBroker], values: Traversable[TopicPartitionValue[A]]): Map[KafkaBroker, Traversable[TopicPartitionValue[A]]] =
+    values
+      .groupBy(_.topicPartition)
+      .foldLeft(Map.empty[KafkaBroker, Traversable[TopicPartitionValue[A]]]) {
+        case (acc, (topicPartition, entries)) =>
+          acc.updatedValue(brokerMap.getOrElse(topicPartition, KafkaBroker.AnyNode), Nil)(_ ++ entries)
+      }
+
+  def runTopicPartitionValues[I, O](
+    brokerMap:      Map[TopicPartition, KafkaBroker],
+    initialRequest: Traversable[TopicPartitionValue[I]],
+    split:          (Map[TopicPartition, KafkaBroker], Traversable[TopicPartitionValue[I]]) => Map[KafkaBroker, Traversable[TopicPartitionValue[I]]],
+    prg:            Traversable[TopicPartitionValue[I]] => kafka.Dsl[TopicPartitionValues[O]]
+  ) = {
+    def rerun(retries: Int, originalRequest: Traversable[TopicPartitionValue[I]], resp: TopicPartitionValues[O]) = for {
+      newBrokerMap <- syncMetadataInfo(resp.canBeRetried.map(_.topic))
+      _ <- FutureUtils.delay(defaultContext.settings.retryBackoff)
+      retryResults <- Monoid.combineAll {
+        split(newBrokerMap, originalRequest.filter(x => resp.canBeRetried.contains(x.topicPartition)))
+          .map {
+            case (newBroker, newRequest) =>
+              Future.successful(resp.resultsExceptWhichCanBeRetried) |+| run(retries = retries + 1)(broker = newBroker, request = newRequest)
+          }
+      }
+    } yield retryResults
+
+    def run(retries: Int)(broker: KafkaBroker, request: Traversable[TopicPartitionValue[I]]): Future[TopicPartitionValues[O]] = {
+      for {
+        resp <- runWithBroker(prg(request), broker)
+        res <- if (resp.canBeRetried.nonEmpty && retries < defaultContext.settings.retryMaxCount) {
+          log.info(s"errors: ${resp.errors}")
+          rerun(retries, request, resp)
+        } else {
+          Future.successful(resp)
+        }
+      } yield res
+    }
+
+    Monoid.combineAll(split(brokerMap, initialRequest).map { case (broker, values) => run(0)(broker, values) })
+  }
+
   def runGroupXorCall[A](groupId: String, brokerMap: Map[String, KafkaBroker], dsl: kafka.Dsl[KafkaResult Xor A]) =
     for {
       broker <- getBrokerByGroupId(brokerMap, groupId)
@@ -112,10 +127,13 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
       } yield result) pipeTo sender()
 
     case KafkaCoordinator.Fetch(values) =>
-      splitRun(splitter.Fetch)(state.byTopicPartition, values)(kafka.fetch) pipeTo sender()
+      runTopicPartitionValues[Long, List[RecordEntry]](state.byTopicPartition, values, split, x => kafka.fetch(x.toSet)) pipeTo sender()
 
-    case KafkaCoordinator.Produce(values) =>
-      splitRun(splitter.Produce)(state.byTopicPartition, values)(kafka.produce) pipeTo sender()
+    case KafkaCoordinator.ProduceOne(value) =>
+      runTopicPartitionValues[Record, Long](state.byTopicPartition, Seq(value), split, x => kafka.produceOne(x.headOption.getOrElse(sys.error("Impossible")))) pipeTo sender()
+
+    case KafkaCoordinator.ProduceN(values, compression) =>
+      runTopicPartitionValues[Record, Long](state.byTopicPartition, values, split, x => kafka.produceN(compression, x.toSeq)) pipeTo sender()
 
     case KafkaCoordinator.ListGroups =>
       (for {
@@ -267,11 +285,12 @@ final class KafkaCoordinator private (settings: KafkaSettings) extends Actor wit
 object KafkaCoordinator {
   protected[akkaimpl] final case class OffsetsFetch(groupId: String, values: Set[TopicPartition])
   protected[akkaimpl] final case class OffsetsCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata])
-  protected[akkaimpl] final case class Produce(values: List[(TopicPartition, Record)])
+  protected[akkaimpl] final case class ProduceN(values: Seq[TopicPartitionValue[Record]], compression: Compression)
+  protected[akkaimpl] final case class ProduceOne(values: TopicPartitionValue[Record])
   protected[akkaimpl] final case class JoinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol])
   protected[akkaimpl] final case class SynchronizeGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment])
   protected[akkaimpl] final case class Heartbeat(groupId: String, generationId: Int, memberId: String)
-  protected[akkaimpl] final case class Fetch(values: Map[TopicPartition, Long])
+  protected[akkaimpl] final case class Fetch(values: Set[TopicPartitionValue[Long]])
   protected[akkaimpl] final case class LeaveGroup(groupId: String, memberId: String)
   protected[akkaimpl] final case class GroupCoordinator(groupId: String)
   protected[akkaimpl] final case class Metadata(topics: Set[String])

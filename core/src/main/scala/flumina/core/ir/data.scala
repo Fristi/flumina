@@ -28,7 +28,7 @@ final case class TopicInfo(leader: Int, replicas: Seq[Int], isr: Seq[Int])
 
 final case class TopicResult(topic: String, kafkaResult: KafkaResult)
 
-final case class Metadata(brokers: Set[Broker], topics: Option[Ior[Set[TopicResult], Set[TopicPartitionResult[TopicInfo]]]]) {
+final case class Metadata(brokers: Set[Broker], topics: Option[Ior[Set[TopicResult], Set[TopicPartitionValue[TopicInfo]]]]) {
   val topicsWhichCanBeRetried: Set[String] = topics.map {
     case Ior.Right(_)      => Set.empty[String]
     case Ior.Left(left)    => left.map(_.topic)
@@ -38,7 +38,7 @@ final case class Metadata(brokers: Set[Broker], topics: Option[Ior[Set[TopicResu
   }
 
   def withoutRetryErrors = {
-    def withoutRetrieableErrors(t: Ior[Set[TopicResult], Set[TopicPartitionResult[TopicInfo]]]) = t match {
+    def withoutRetrieableErrors(t: Ior[Set[TopicResult], Set[TopicPartitionValue[TopicInfo]]]) = t match {
       case Ior.Left(left)        => Ior.left(left.filterNot(x => KafkaResult.canRetry(x.kafkaResult)))
       case Ior.Right(right)      => Ior.right(right)
       case Ior.Both(left, right) => Ior.both(left.filterNot(x => KafkaResult.canRetry(x.kafkaResult)), right)
@@ -81,24 +81,24 @@ final case class MemberAssignment(version: Int, topicPartitions: Seq[TopicPartit
 
 final case class ConsumerProtocol(version: Int, subscriptions: Seq[String], userData: ByteVector)
 
-final case class TopicPartitionResult[T](topicPartition: TopicPartition, result: T)
+final case class TopicPartitionValue[T](topicPartition: TopicPartition, result: T)
 
-final case class TopicPartitionResults[T](errors: List[TopicPartitionResult[KafkaResult]], success: List[TopicPartitionResult[T]]) {
+final case class TopicPartitionValues[T](errors: List[TopicPartitionValue[KafkaResult]], success: List[TopicPartitionValue[T]]) {
   lazy val canBeRetried = errors.filter(x => KafkaResult.canRetry(x.result)).map(_.topicPartition).toSet
-  def resultsExceptWhichCanBeRetried = TopicPartitionResults(errors.filterNot(x => KafkaResult.canRetry(x.result)), success)
+  def resultsExceptWhichCanBeRetried = TopicPartitionValues(errors.filterNot(x => KafkaResult.canRetry(x.result)), success)
 }
 
-object TopicPartitionResults {
-  def zero[A] = TopicPartitionResults(List.empty, List.empty[TopicPartitionResult[A]])
+object TopicPartitionValues {
+  def zero[A] = TopicPartitionValues(List.empty, List.empty[TopicPartitionValue[A]])
 
-  implicit def monoid[A]: Monoid[TopicPartitionResults[A]] = new Monoid[TopicPartitionResults[A]] {
+  implicit def monoid[A]: Monoid[TopicPartitionValues[A]] = new Monoid[TopicPartitionValues[A]] {
     def empty = zero[A]
-    def combine(x: TopicPartitionResults[A], y: TopicPartitionResults[A]) = TopicPartitionResults(x.errors ++ y.errors, x.success ++ y.success)
+    def combine(x: TopicPartitionValues[A], y: TopicPartitionValues[A]) = TopicPartitionValues(x.errors ++ y.errors, x.success ++ y.success)
   }
 
   def from[A, B](xs: Seq[(KafkaResult, TopicPartition, A)]) = {
     val (errors, success) = xs.partition(x => x._1 != KafkaResult.NoError)
 
-    TopicPartitionResults(errors.map(e => TopicPartitionResult(e._2, e._1)).toList, success.map(x => TopicPartitionResult(x._2, x._3)).toList)
+    TopicPartitionValues(errors.map(e => TopicPartitionValue(e._2, e._1)).toList, success.map(x => TopicPartitionValue(x._2, x._3)).toList)
   }
 }

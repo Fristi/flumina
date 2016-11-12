@@ -3,6 +3,7 @@ package flumina.core
 import cats.Monad
 import cats.data.Xor
 import flumina.core.ir._
+import flumina.core.v090.Compression
 
 object kafka {
 
@@ -14,11 +15,11 @@ object kafka {
     override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].metadata(topics)
   }
 
-  def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]) = new Dsl[TopicPartitionResults[OffsetMetadata]] {
+  def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]) = new Dsl[TopicPartitionValues[OffsetMetadata]] {
     override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].offsetFetch(groupId, topicPartitions)
   }
 
-  def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) = new Dsl[TopicPartitionResults[Unit]] {
+  def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) = new Dsl[TopicPartitionValues[Unit]] {
     override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].offsetCommit(groupId, generationId, memberId, offsets)
   }
 
@@ -45,11 +46,15 @@ object kafka {
     override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].listGroups
   }
 
-  def produce(values: List[(TopicPartition, Record)]) = new Dsl[TopicPartitionResults[Long]] {
-    override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].produce(values)
+  def produceOne(value: TopicPartitionValue[Record]) = new Dsl[TopicPartitionValues[Long]] {
+    override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].produceOne(value)
   }
 
-  def fetch(topicPartitionOffsets: Map[TopicPartition, Long]) = new Dsl[TopicPartitionResults[List[RecordEntry]]] {
+  def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]) = new Dsl[TopicPartitionValues[Long]] {
+    override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].produceN(compression, values)
+  }
+
+  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]) = new Dsl[TopicPartitionValues[List[RecordEntry]]] {
     override def apply[F[_]: KafkaAlg] = implicitly[KafkaAlg[F]].fetch(topicPartitionOffsets)
   }
 

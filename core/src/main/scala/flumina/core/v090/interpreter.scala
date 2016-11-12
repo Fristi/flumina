@@ -8,6 +8,8 @@ import flumina.core.ir._
 import scodec.Attempt
 import scodec.bits.{BitVector, ByteVector}
 
+import scala.annotation.tailrec
+
 final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(implicit F: Async[F]) extends KafkaAlg[KafkaReader[F, ?]] {
 
   private def doRequest[A](requestFactory: KafkaContext => KafkaRequest, trace: Boolean)(responseTransformer: PartialFunction[KafkaResponse, F[A]]): KafkaReader[F, A] = KafkaReader.fromAsync { ctx =>
@@ -28,7 +30,7 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
   def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]) =
     doRequest(_ => KafkaRequest.OffsetFetch(groupId, topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(topic, tp.map(_.partition).toVector) }.toVector), trace = false) {
       case KafkaResponse.OffsetFetch(topics) => F.pure {
-        TopicPartitionResults.from {
+        TopicPartitionValues.from {
           for {
             topic <- topics
             partition <- topic.partitions
@@ -54,7 +56,7 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
     //TODO: set retention time
     doRequest(_ => KafkaRequest.OffsetCommit(groupId, generationId, memberId, -1, offsetTopics), trace = false) {
       case KafkaResponse.OffsetCommit(topics) => F.pure {
-        TopicPartitionResults.from {
+        TopicPartitionValues.from {
           for {
             topic <- topics
             partition <- topic.partitions
@@ -111,17 +113,17 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
     } yield response
   }
 
-  def fetch(topicPartitionOffsets: Map[TopicPartition, Long]) = {
+  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]) = {
     def makeRequest(ctx: KafkaContext) = KafkaRequest.Fetch(
       replicaId = -1,
       maxWaitTime = ctx.settings.fetchMaxWaitTime.toMillis.toInt,
       minBytes = 1,
       topics =
         topicPartitionOffsets
-          .groupBy { case (tp, _) => tp.topic }
+          .groupBy { _.topicPartition.topic }
           .map {
             case (topic, tpo) =>
-              FetchTopicRequest(topic, tpo.map { case (tp, offset) => FetchTopicPartitionRequest(tp.partition, offset, ctx.settings.fetchMaxBytes) }.toVector)
+              FetchTopicRequest(topic, tpo.map { m => FetchTopicPartitionRequest(m.topicPartition.partition, m.result, ctx.settings.fetchMaxBytes) }.toVector)
           }
           .toVector
     )
@@ -129,15 +131,23 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
     doRequest(makeRequest, trace = false) {
       case KafkaResponse.Fetch(throttleTime, topics) =>
         F.pure {
-          TopicPartitionResults.from {
+          TopicPartitionValues.from {
             for {
               topic <- topics
               partition <- topic.partitions
             } yield {
               val topicPartition = TopicPartition(topic.topicName, partition.partition)
-              val messages = partition.messages.map(x => RecordEntry(x.offset, Record(x.message.key, x.message.value))).toList
 
-              (partition.kafkaResult, topicPartition, messages)
+              @tailrec
+              def loop(msgs: List[Message], acc: List[RecordEntry]): List[RecordEntry] = msgs match {
+                case Message.SingleMessage(offset, _, _, key, value) :: xs =>
+                  loop(xs, RecordEntry(offset, Record(key, value)) :: acc)
+                case Message.CompressedMessages(_, _, _, _, m) :: xs =>
+                  loop(m.toList ++ xs, acc)
+                case Nil => acc.reverse
+              }
+
+              (partition.kafkaResult, topicPartition, loop(partition.messages.toList, Nil))
             }
           }
         }
@@ -149,9 +159,9 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
       case u: KafkaResponse.Metadata =>
         val brokers = u.brokers.map(broker => Broker(broker.nodeId, broker.host, broker.port))
 
-        def toIor(x: MetadataTopicMetadataResponse): Ior[Set[TopicResult], Set[TopicPartitionResult[TopicInfo]]] = {
+        def toIor(x: MetadataTopicMetadataResponse): Ior[Set[TopicResult], Set[TopicPartitionValue[TopicInfo]]] = {
           if (x.kafkaResult == KafkaResult.NoError) {
-            Ior.right(x.partitions.map(p => TopicPartitionResult(TopicPartition(x.topicName, p.id), TopicInfo(p.leader, p.replicas, p.isr))).toSet)
+            Ior.right(x.partitions.map(p => TopicPartitionValue(TopicPartition(x.topicName, p.id), TopicInfo(p.leader, p.replicas, p.isr))).toSet)
           } else {
             Ior.left(Set(TopicResult(x.topicName, x.kafkaResult)))
           }
@@ -208,22 +218,50 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
     } yield response
   }
 
-  def produce(values: List[(TopicPartition, Record)]) = {
+  def produceOne(msg: TopicPartitionValue[Record]) = {
+    def makeRequest(ctx: KafkaContext) = KafkaRequest.Produce(
+      acks = 1,
+      timeout = ctx.settings.produceTimeout.toMillis.toInt,
+      topics = Vector(
+        ProduceTopicRequest(
+          msg.topicPartition.topic,
+          Vector(ProduceTopicPartitionRequest(
+            msg.topicPartition.partition,
+            Vector(Message.SingleMessage(0, MessageVersion.V0, None, msg.result.key, msg.result.value))
+          ))
+        )
+      )
+    )
+
+    doRequest(makeRequest, trace = false) {
+      case KafkaResponse.Produce(topics, _) =>
+        F.pure {
+          TopicPartitionValues.from {
+            for {
+              topic <- topics
+              partition <- topic.partitions
+            } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), partition.offset)
+          }
+        }
+    }
+  }
+
+  def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]) = {
     def makeRequest(ctx: KafkaContext) = KafkaRequest.Produce(
       acks = 1,
       timeout = ctx.settings.produceTimeout.toMillis.toInt,
       topics = values
-        .groupBy { case (tp, _) => tp.topic }
+        .groupBy { _.topicPartition.topic }
         .map {
           case (topic, tpvalues) =>
-            ProduceTopicRequest(topic, tpvalues.groupBy(_._1.partition).map {
+            ProduceTopicRequest(topic, tpvalues.groupBy(_.topicPartition.partition).map {
               case (partition, keyValues) =>
-                val messages = keyValues.map {
-                  case (_, message) =>
-                    MessageSetEntry(offset = 0, message = Message(magicByte = 0, attributes = 0, key = message.key, value = message.value))
-                }
+                val messages = keyValues.map(m => Message.SingleMessage(0, MessageVersion.V0, None, m.result.key, m.result.value)).toVector
 
-                ProduceTopicPartitionRequest(partition, messages.toVector)
+                ProduceTopicPartitionRequest(
+                  partition,
+                  Vector(Message.CompressedMessages(0, MessageVersion.V0, compression, None, messages))
+                )
             }.toVector)
         }
         .toVector
@@ -232,7 +270,7 @@ final class V090[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(impl
     doRequest(makeRequest, trace = false) {
       case KafkaResponse.Produce(topics, _) =>
         F.pure {
-          TopicPartitionResults.from {
+          TopicPartitionValues.from {
             for {
               topic <- topics
               partition <- topic.partitions

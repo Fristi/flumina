@@ -36,6 +36,7 @@ val scalacOpts = List(
 
 val commonSettings = Seq(
   version := "0.1.0",
+  organization := "net.vectos",
   scalaOrganization := "org.typelevel",
   scalaVersion := "2.11.8",
   javacOptions += "-Xmx2048M",
@@ -55,7 +56,8 @@ lazy val core = project.in(file("core"))
       libraryDependencies ++= Seq(
         "org.typelevel" %% "cats-core" % "0.7.2",
         "org.scodec" %% "scodec-core" % "1.10.2",
-        "org.scodec" %% "scodec-bits" % "1.1.1"
+        "org.scodec" %% "scodec-bits" % "1.1.2",
+        "org.xerial.snappy" % "snappy-java" % "1.1.2.6"
       ),
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
   )
@@ -66,7 +68,7 @@ lazy val akka = project.in(file("akka"))
       name := "flumina-akka",
       parallelExecution in Test := false,
       libraryDependencies ++= Seq(
-          "com.typesafe.akka" %% "akka-stream" % "2.4.10",
+          "com.typesafe.akka" %% "akka-actor" % "2.4.10",
           //TEST dependencies.. oh my?
           "de.heikoseeberger" %% "akka-log4j" % "1.1.4" % "test",
           "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
@@ -74,7 +76,6 @@ lazy val akka = project.in(file("akka"))
           "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
           "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
           "com.typesafe.akka" %% "akka-testkit" % "2.4.10" % "test",
-          "com.typesafe.akka" %% "akka-stream-testkit" % "2.4.10" % "test",
           "com.ironcorelabs" %% "cats-scalatest" % "1.4.0" % "test",
           "org.apache.kafka" %% "kafka" % "0.10.0.0" % "test",
           "com.spotify" % "docker-client" % "3.5.12" % "test",
@@ -85,17 +86,3 @@ lazy val akka = project.in(file("akka"))
       coverageFailOnMinimum := false,
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
   ).dependsOn(core)
-
-
-lazy val akkaBenchmark = project.in(file("akka-benchmark"))
-    .settings(commonSettings)
-    .settings(
-      name := "flumina-akka-benchmark",
-      parallelExecution in Test := false,
-      publishTo := None,
-      coverageExcludedPackages := "flumina.benchmark.*",
-      libraryDependencies ++= Seq(
-        "io.dropwizard.metrics" % "metrics-core" % "3.1.0",
-        "org.apache.kafka" %% "kafka" % "0.10.0.0"
-      )
-    ).dependsOn(akka)

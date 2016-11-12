@@ -7,7 +7,7 @@ import flumina.core._
 final case class FetchTopicPartitionRequest(partition: Int, fetchOffset: Long, maxBytes: Int)
 final case class FetchTopicRequest(topic: String, partitions: Vector[FetchTopicPartitionRequest])
 
-final case class FetchTopicPartitionResponse(partition: Int, kafkaResult: KafkaResult, highWaterMark: Long, messages: Vector[MessageSetEntry])
+final case class FetchTopicPartitionResponse(partition: Int, kafkaResult: KafkaResult, highWaterMark: Long, messages: Vector[Message])
 final case class FetchTopicResponse(topicName: String, partitions: Vector[FetchTopicPartitionResponse])
 
 object FetchTopicPartitionRequest {
@@ -21,12 +21,12 @@ object FetchTopicRequest {
 }
 
 object FetchTopicPartitionResponse {
-  implicit def codec(implicit messageSetEntry: Codec[MessageSetEntry], kafkaResult: Codec[KafkaResult]): Codec[FetchTopicPartitionResponse] =
+  implicit def codec(implicit kafkaResult: Codec[KafkaResult]): Codec[FetchTopicPartitionResponse] =
     (
       ("partition" | int32) ::
       ("kafkaResult" | kafkaResult) ::
       ("highWaterMark" | int64) ::
-      ("messages" | variableSizeBytes(int32, partialVector(messageSetEntry)))
+      ("messages" | variableSizeBytes(int32, MessageSetCodec.messageSetCodec))
     ).as[FetchTopicPartitionResponse]
 }
 

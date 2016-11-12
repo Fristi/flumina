@@ -13,21 +13,21 @@ package object core {
     override def combine(x: Ior[A, B], y: Ior[A, B]): Ior[A, B] = x append y
   }
 
+  def attempt[A](a: => A): Attempt[A] = {
+    try { Attempt.successful(a) }
+    catch { case t: Throwable => Attempt.failure(Err(s"${t.getClass} : ${t.getMessage}")) }
+  }
+
   @SuppressWarnings(Array("org.wartremover.warts.Equals"))
   implicit final class AnyOps[A](self: A) {
     @inline
     def ===(other: A): Boolean = self == other
+
+    @inline
+    def =/=(other: A): Boolean = self != other
   }
 
   implicit class RichMap[K, V](val map: Map[K, V]) {
-
-    def combineIfPresent(other: Map[K, V], combine: (V, V) => V) = {
-      def loop(acc: Map[K, V], list: List[(K, V)]): Map[K, V] = list match {
-        case (key, value) :: tail => loop(acc.updated(key, combine(other.getOrElse(key, value), value)), tail)
-        case Nil                  => acc
-      }
-      loop(Map(), map.toList)
-    }
 
     @inline
     def updatedValue(key: K, default: => V)(update: V => V) =
@@ -50,5 +50,4 @@ package object core {
   val kafkaBytes: Codec[ByteVector] = new KafkaBytesCodec
 
   def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] = vectorOfN(int32, valueCodec)
-  def partialVector[A](valueCodec: Codec[A]): Codec[Vector[A]] = new KafkaPartialVectorCodec[A](valueCodec)
 }
