@@ -189,6 +189,84 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
           topicMetadata.topics.map(_.topicPartition.topic) should contain(topic)
       }
     }
+
+    "describeGroups with syncGroup call" in new KafkaScope {
+      val memberAssignment = MemberAssignment(
+        version = 0,
+        topicPartitions = Seq(TopicPartition("test", 0)),
+        userData = ByteVector("more-test".getBytes)
+      )
+
+      val consumerProtocolMetadata = ConsumerProtocol(0, Seq("test"), ByteVector("test".getBytes))
+
+      val prg = for {
+        joinGroupResult <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata)))))
+        _ <- pure(
+          client.syncGroup(
+            groupId = groupId,
+            generationId = joinGroupResult.generationId,
+            memberId = joinGroupResult.memberId,
+            assignments = Seq(
+              GroupAssignment(
+                memberId = joinGroupResult.memberId,
+                memberAssignment = memberAssignment
+              )
+            )
+          )
+        )
+        describeGroupResult <- pure(client.describeGroups(Set(groupId)))
+      } yield joinGroupResult -> describeGroupResult
+
+      whenReady(prg.value) { result =>
+        val (joinGroupResult, describeGroupResult) = result.right.value
+
+        describeGroupResult should have size 1
+        describeGroupResult.head.kafkaResult shouldBe KafkaResult.NoError
+        describeGroupResult.head.groupId shouldBe groupId
+        describeGroupResult.head.state shouldBe "Stable"
+        describeGroupResult.head.protocolType should not be empty
+        describeGroupResult.head.members should have size 1
+        //        describeGroupResult.head.members.head.clientHost shouldBe Some("/127.0.0.1")
+        describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
+        describeGroupResult.head.members.head.consumerProtocol shouldBe Some(consumerProtocolMetadata)
+        describeGroupResult.head.members.head.assignment shouldBe Some(memberAssignment)
+      }
+    }
+
+    "describeGroups without syncGroup call" in new KafkaScope {
+      val memberAssignment = MemberAssignment(
+        version = 0,
+        topicPartitions = Seq(TopicPartition("test", 0)),
+        userData = ByteVector("more-test".getBytes)
+      )
+
+      val consumerProtocolMetadata = ConsumerProtocol(0, Seq("test"), ByteVector("test".getBytes))
+
+      val prg = for {
+        joinGroupResult <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata)))))
+        describeGroupResult <- pure(client.describeGroups(Set(groupId)))
+      } yield joinGroupResult -> describeGroupResult
+
+      whenReady(prg.value) { result =>
+        val (joinGroupResult, describeGroupResult) = result.right.value
+
+        describeGroupResult should have size 1
+        describeGroupResult.head.kafkaResult shouldBe KafkaResult.NoError
+        describeGroupResult.head.groupId shouldBe groupId
+        describeGroupResult.head.state shouldBe "AwaitingSync"
+        describeGroupResult.head.protocolType should not be empty
+        describeGroupResult.head.members should have size 1
+        describeGroupResult.head.members.head.memberId shouldBe joinGroupResult.memberId
+        describeGroupResult.head.members.head.consumerProtocol shouldBe None
+        describeGroupResult.head.members.head.assignment shouldBe None
+      }
+    }
+
+    "apiVersions" in {
+      whenReady(client.apiVersions) { result =>
+        result should be(right)
+      }
+    }
   }
 
   def respectOrder[A](items: Seq[A])(f: (A => Long)) = {

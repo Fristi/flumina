@@ -208,7 +208,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       def decode(bitVector: BitVector) = fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(bitVector))
       members.toList.foldM(List.empty[GroupMember]) {
         case (acc, r) =>
-          decode(BitVector(r.metadata)).map(data => acc :+ GroupMember(r.memberId, None, None, Some(extractConsumerProtocolMetadataData(data)), None))
+          decode(BitVector(r.metadata)).map(data => acc :+ GroupMember(r.memberId, None, None, Some(extractConsumerProtocol(data)), None))
       }
     }
 
@@ -311,16 +311,45 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       CreateTopicRequest(td.topic, td.nrPartitions, td.replicationFactor, td.replicaAssignment.map(toReplicaAssignment).toVector, td.config)
     }
 
-    doRequest(_ => KafkaRequest.CreateTopic(topics.map(toCreateTopicRequest).toVector, 8000), trace = false) {
+    doRequest(_ => KafkaRequest.CreateTopic(topics.map(toCreateTopicRequest).toVector, 2000), trace = false) {
       case u: KafkaResponse.CreateTopic =>
         F.pure(u.result.map(toTopicResult).toList)
     }
   }
 
   private def deleteTopics(topics: Traversable[String]) = {
-    doRequest(_ => KafkaRequest.DeleteTopic(topics.toVector, 8000), trace = false) {
+    doRequest(_ => KafkaRequest.DeleteTopic(topics.toVector, 2000), trace = false) {
       case u: KafkaResponse.DeleteTopic =>
         F.pure(u.result.map(toTopicResult).toList)
+    }
+  }
+
+  private def apiVersions = {
+    doRequest(_ => KafkaRequest.ApiVersions, trace = false) {
+      case u: KafkaResponse.ApiVersions =>
+        F.pure(if (u.kafkaResult == KafkaResult.NoError) Right(u.versions.toList) else Left(u.kafkaResult))
+    }
+  }
+
+  private def describeGroups(groupIds: Traversable[String]) = {
+    doRequest(_ => KafkaRequest.DescribeGroups(groupIds.toVector), trace = false) {
+      case u: KafkaResponse.DescribeGroups =>
+        def toMember(e: DescribeGroupsGroupMemberResponse): F[GroupMember] = for {
+          protocolMetadata <- if (e.memberAssignment.nonEmpty)
+            fromAttempt(MemberAssignmentData.codec.decodeValue(e.memberAssignment.toBitVector).map(extractMemberAssignment))
+              .map(Option.apply)
+          else F.pure(Option.empty[MemberAssignment])
+          assignment <- if (e.memberMetadata.nonEmpty)
+            fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(e.memberMetadata.toBitVector).map(extractConsumerProtocol))
+              .map(Option.apply)
+          else F.pure(Option.empty[ConsumerProtocol])
+        } yield GroupMember(e.memberId, Some(e.clientId), Some(e.clientHost), assignment, protocolMetadata)
+
+        def toGroup(entry: DescribeGroupsGroupResponse): F[Group] = for {
+          members <- entry.members.foldM[F, Seq[GroupMember]](Seq.empty) { case (acc, e) => toMember(e).map(q => acc :+ q) }
+        } yield Group(entry.kafkaResult, entry.groupId, entry.state, entry.protocolType, entry.protocol, members)
+
+        u.groups.foldM[F, Seq[Group]](Seq.empty) { case (acc, e) => toGroup(e).map(q => acc :+ q) }
     }
   }
 
@@ -335,7 +364,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     MemberAssignment(data.version, extractMemberAssignmentTopicPartition(data.topicPartitions), data.userData)
   }
 
-  private def extractConsumerProtocolMetadataData(data: ConsumerProtocolMetadataData) = {
+  private def extractConsumerProtocol(data: ConsumerProtocolMetadataData) = {
     ConsumerProtocol(data.version, data.subscriptions, data.userData)
   }
 
@@ -359,7 +388,9 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case _: KafkaRequest.Heartbeat        => 12
     case _: KafkaRequest.LeaveGroup       => 13
     case _: KafkaRequest.SyncGroup        => 14
+    case _: KafkaRequest.DescribeGroups   => 15
     case KafkaRequest.ListGroups          => 16
+    case KafkaRequest.ApiVersions         => 18
     case _: KafkaRequest.CreateTopic      => 19
     case _: KafkaRequest.DeleteTopic      => 20
   }
@@ -375,7 +406,9 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case _: KafkaRequest.Heartbeat        => KafkaResponse.heartbeat.decodeValue
     case _: KafkaRequest.LeaveGroup       => KafkaResponse.leaveGroup.decodeValue
     case _: KafkaRequest.SyncGroup        => KafkaResponse.syncGroup.decodeValue
+    case _: KafkaRequest.DescribeGroups   => KafkaResponse.describeGroups.decodeValue
     case KafkaRequest.ListGroups          => KafkaResponse.listGroups.decodeValue
+    case KafkaRequest.ApiVersions         => KafkaResponse.apiVersions.decodeValue
     case _: KafkaRequest.CreateTopic      => KafkaResponse.createTopic.decodeValue
     case _: KafkaRequest.DeleteTopic      => KafkaResponse.deleteTopic.decodeValue
   }
@@ -391,7 +424,9 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case x: KafkaRequest.Heartbeat        => KafkaRequest.heartbeat.encode(x)
     case x: KafkaRequest.LeaveGroup       => KafkaRequest.leaveGroup.encode(x)
     case x: KafkaRequest.SyncGroup        => KafkaRequest.syncGroup.encode(x)
+    case x: KafkaRequest.DescribeGroups   => KafkaRequest.describeGroups.encode(x)
     case KafkaRequest.ListGroups          => KafkaRequest.listGroups.encode(KafkaRequest.ListGroups)
+    case KafkaRequest.ApiVersions         => KafkaRequest.apiVersions.encode(KafkaRequest.ApiVersions)
     case x: KafkaRequest.CreateTopic      => KafkaRequest.createTopic.encode(x)
     case x: KafkaRequest.DeleteTopic      => KafkaRequest.deleteTopic.encode(x)
   }
@@ -411,5 +446,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case KafkaA.GetMetadata(topics)                                            => metadata(topics)
     case KafkaA.CreateTopics(topics)                                           => createTopics(topics)
     case KafkaA.DeleteTopics(topics)                                           => deleteTopics(topics)
+    case KafkaA.DescribeGroups(groupIds)                                       => describeGroups(groupIds)
+    case KafkaA.ApiVersions                                                    => apiVersions
   }
 }

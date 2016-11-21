@@ -63,6 +63,12 @@ final class KafkaClient(settings: KafkaSettings)(implicit S: ActorSystem, T: Tim
   def listGroups: Future[KafkaResult Either List[GroupInfo]] =
     int(KafkaA.ListGroups)
 
+  def describeGroups(groupIds: Set[String]): Future[Seq[Group]] =
+    int(KafkaA.DescribeGroups(groupIds))
+
+  def apiVersions: Future[KafkaResult Either Seq[ApiVersion]] =
+    int(KafkaA.ApiVersions)
+
 }
 
 object KafkaClient {

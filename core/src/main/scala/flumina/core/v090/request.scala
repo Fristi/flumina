@@ -18,7 +18,9 @@ object KafkaRequest {
   final case class Heartbeat(groupId: String, generationId: Int, memberId: String) extends KafkaRequest
   final case class LeaveGroup(groupId: String, memberId: String) extends KafkaRequest
   final case object ListGroups extends KafkaRequest
+  final case object ApiVersions extends KafkaRequest
   final case class SyncGroup(groupId: String, generationId: Int, memberId: String, groupAssignment: Vector[SyncGroupGroupAssignmentRequest]) extends KafkaRequest
+  final case class DescribeGroups(groupIds: Vector[String]) extends KafkaRequest
   final case class CreateTopic(topics: Vector[CreateTopicRequest], timeout: Int) extends KafkaRequest
   final case class DeleteTopic(topics: Vector[String], timeout: Int) extends KafkaRequest
 
@@ -57,6 +59,12 @@ object KafkaRequest {
 
   val listGroups: Codec[ListGroups.type] =
     provide(ListGroups).as[ListGroups.type]
+
+  val apiVersions: Codec[ApiVersions.type] =
+    provide(ApiVersions).as[ApiVersions.type]
+
+  val describeGroups: Codec[DescribeGroups] =
+    ("groups" | kafkaArray(kafkaRequiredString)).as[DescribeGroups]
 
   val syncGroup: Codec[SyncGroup] =
     (

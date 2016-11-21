@@ -11,6 +11,7 @@ object KafkaA {
   final case class ProduceN(compression: Compression, values: Traversable[TopicPartitionValue[Record]]) extends KafkaA[TopicPartitionValues[Long]]
   final case class ProduceOne(values: TopicPartitionValue[Record]) extends KafkaA[TopicPartitionValues[Long]]
   final case class JoinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol]) extends KafkaA[Either[KafkaResult, JoinGroupResult]]
+  final case class DescribeGroups(groupIds: Traversable[String]) extends KafkaA[Seq[Group]]
   final case class SynchronizeGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) extends KafkaA[Either[KafkaResult, MemberAssignment]]
   final case class Heartbeat(groupId: String, generationId: Int, memberId: String) extends KafkaA[Either[KafkaResult, Unit]]
   final case class Fetch(values: Traversable[TopicPartitionValue[Long]]) extends KafkaA[TopicPartitionValues[List[RecordEntry]]]
@@ -20,6 +21,7 @@ object KafkaA {
   final case class CreateTopics(topics: Traversable[TopicDescriptor]) extends KafkaA[List[TopicResult]]
   final case class DeleteTopics(topics: Traversable[String]) extends KafkaA[List[TopicResult]]
   final case object ListGroups extends KafkaA[Either[KafkaResult, List[GroupInfo]]]
+  final case object ApiVersions extends KafkaA[Either[KafkaResult, List[ApiVersion]]]
 }
 
 object kafka {
@@ -62,6 +64,12 @@ object kafka {
   def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]): Free[KafkaA, KafkaResult Either MemberAssignment] =
     Free.liftF(KafkaA.SynchronizeGroup(groupId, generationId, memberId, assignments))
 
+  def apiVersions: Free[KafkaA, KafkaResult Either List[ApiVersion]] =
+    Free.liftF(KafkaA.ApiVersions)
+
   def listGroups: Free[KafkaA, KafkaResult Either List[GroupInfo]] =
     Free.liftF(KafkaA.ListGroups)
+
+  def describeGroups(groupIds: Set[String]): Free[KafkaA, Seq[Group]] =
+    Free.liftF(KafkaA.DescribeGroups(groupIds))
 }

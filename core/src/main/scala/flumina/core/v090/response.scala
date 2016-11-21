@@ -1,5 +1,6 @@
 package flumina.core.v090
 
+import flumina.core.ir.ApiVersion
 import scodec._
 import scodec.codecs._
 import flumina.core.{KafkaResult, _}
@@ -19,7 +20,9 @@ object KafkaResponse {
   final case class Heartbeat(kafkaResult: KafkaResult) extends KafkaResponse
   final case class LeaveGroup(kafkaResult: KafkaResult) extends KafkaResponse
   final case class ListGroups(kafkaResult: KafkaResult, groups: Vector[ListGroupGroupResponse]) extends KafkaResponse
+  final case class ApiVersions(kafkaResult: KafkaResult, versions: Vector[ApiVersion]) extends KafkaResponse
   final case class SyncGroup(result: KafkaResult, bytes: ByteVector) extends KafkaResponse
+  final case class DescribeGroups(groups: Vector[DescribeGroupsGroupResponse]) extends KafkaResponse
   final case class CreateTopic(result: Vector[TopicResponse]) extends KafkaResponse
   final case class DeleteTopic(result: Vector[TopicResponse]) extends KafkaResponse
 
@@ -73,4 +76,10 @@ object KafkaResponse {
 
   val deleteTopic: Codec[DeleteTopic] =
     ("topics" | kafkaArray(TopicResponse.codec)).as[DeleteTopic]
+
+  val describeGroups: Codec[DescribeGroups] =
+    ("groups" | kafkaArray(DescribeGroupsGroupResponse.codec)).as[DescribeGroups]
+
+  val apiVersions: Codec[ApiVersions] =
+    (("kafkaResult" | KafkaResult.codec) :: ("versions" | kafkaArray((int16 :: int16 :: int16).as[ApiVersion]))).as[ApiVersions]
 }

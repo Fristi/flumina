@@ -47,6 +47,8 @@ object TopicPartition {
   def enumerate(name: String, nrPartitions: Int) = (0 until nrPartitions).map(x => TopicPartition(name, x)).toSet
 }
 
+final case class ApiVersion(apiKey: Int, minVersion: Int, maxVersion: Int)
+
 final case class GroupInfo(groupId: String, protocolType: String)
 
 final case class OffsetMetadata(offset: Long, metadata: Option[String])

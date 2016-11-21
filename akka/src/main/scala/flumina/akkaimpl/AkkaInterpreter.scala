@@ -63,15 +63,13 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
 
   def runGroupCall[A](groupId: String, dsl: KafkaA[A]) =
     for {
-      optBroker <- getBrokerByGroupId(groupId)
-      broker <- optBroker.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful)
+      broker <- getBrokerByGroupId(groupId)
       result <- runWithBroker(dsl, broker)
     } yield result
 
   def runGroupEitherCall[A](groupId: String, dsl: KafkaA[KafkaResult Either A]) =
     for {
-      optBroker <- getBrokerByGroupId(groupId)
-      broker <- optBroker.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful)
+      broker <- getBrokerByGroupId(groupId)
       result <- runEitherCall(broker, dsl)
     } yield result
 
@@ -145,6 +143,7 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
 
   def getBrokerByGroupId(groupId: String) =
     byGroup.getOrElseUpdate(groupId, groupCoordinator)
+      .flatMap(_.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful))
 
   def getMetadata(topics: Traversable[String]) =
     runWithBroker(KafkaA.GetMetadata(topics), KafkaBroker.AnyNode)
@@ -163,6 +162,7 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
   }
 
   override def apply[A](fa: KafkaA[A]): Future[A] = fa match {
+
     case r: KafkaA.OffsetsFetch     => runGroupCall(r.groupId, r)
     case r: KafkaA.OffsetsCommit    => runGroupCall(r.groupId, r)
     case r: KafkaA.ProduceN         => runTopicPartitionValues[Record, Long](r.values, (v) => KafkaA.ProduceN(r.compression, v))
@@ -176,10 +176,21 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
     case r: KafkaA.GetMetadata      => getController.flatMap(b => runWithBroker(r, b))
     case r: KafkaA.CreateTopics     => runControllerCall(r)
     case r: KafkaA.DeleteTopics     => runControllerCall(r)
+    case r: KafkaA.DescribeGroups => for {
+      brokerMap <- Future.traverse(r.groupIds)(groupId => getBrokerByGroupId(groupId).map(broker => broker -> groupId))
+      multiMap = brokerMap.foldLeft(Map.empty[KafkaBroker, Set[String]]) {
+        case (acc, (broker, groupId)) =>
+          acc.updatedValue(broker, Set.empty)(_ + groupId)
+      }
+      groups <- Future.traverse(multiMap.toList) { case (broker, groupIds) => runWithBroker(KafkaA.DescribeGroups(groupIds), broker) }
+    } yield groups.flatten
+
     case KafkaA.ListGroups => for {
       metadata <- getMetadata(Set())
       res <- Monoid.combineAll(metadata.brokers.map(b => runEitherCall(KafkaBroker.Node(b.host, b.port), KafkaA.ListGroups)))
     } yield res
+
+    case KafkaA.ApiVersions => runWithBroker(KafkaA.ApiVersions, KafkaBroker.AnyNode)
   }
 }
 

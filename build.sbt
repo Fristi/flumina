@@ -40,7 +40,7 @@ val commonSettings = Seq(
   scalaVersion := "2.12.0",
   javacOptions += "-Xmx2048M",
   scalacOptions ++= scalacOpts,
-  wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
+  wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.StringPlusAny, Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
   wartremoverErrors in (Test, compile) := Seq(),
   ScalariformKeys.preferences := Settings.commonFormattingPreferences,
   pomPostProcess := { (node: xml.Node) => removeScoverage.transform(node).head },

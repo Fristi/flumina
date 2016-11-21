@@ -26,7 +26,7 @@ private[core] class KafkaBytesCodec extends Codec[ByteVector] {
   override def decode(bits: BitVector): Attempt[DecodeResult[ByteVector]] = for {
     size <- int32.decode(bits)
     xs <- if (size.value == -1) Attempt.successful(DecodeResult(ByteVector.empty, size.remainder))
-    else bytes.decode(size.remainder)
+    else codec.decode(bits)
   } yield xs
 
   override def encode(value: ByteVector): Attempt[BitVector] =
