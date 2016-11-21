@@ -19,50 +19,57 @@ object KafkaRequest {
   final case class LeaveGroup(groupId: String, memberId: String) extends KafkaRequest
   final case object ListGroups extends KafkaRequest
   final case class SyncGroup(groupId: String, generationId: Int, memberId: String, groupAssignment: Vector[SyncGroupGroupAssignmentRequest]) extends KafkaRequest
+  final case class CreateTopic(topics: Vector[CreateTopicRequest], timeout: Int) extends KafkaRequest
+  final case class DeleteTopic(topics: Vector[String], timeout: Int) extends KafkaRequest
 
-  def produce(implicit topic: Codec[ProduceTopicRequest]): Codec[Produce] =
-    (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(topic))).as[Produce]
+  val produce: Codec[Produce] =
+    (("acks" | int16) :: ("timeout" | int32) :: ("topics" | kafkaArray(ProduceTopicRequest.codec))).as[Produce]
 
-  def fetch(implicit topic: Codec[FetchTopicRequest]): Codec[Fetch] =
-    (("replicaId" | int32) :: ("maxWaitTime" | int32) :: ("minBytes" | int32) :: ("topics" | kafkaArray(topic))).as[Fetch]
+  val fetch: Codec[Fetch] =
+    (("replicaId" | int32) :: ("maxWaitTime" | int32) :: ("minBytes" | int32) :: ("topics" | kafkaArray(FetchTopicRequest.codec))).as[Fetch]
 
-  def metaData: Codec[Metadata] =
-    ("topics" | kafkaArray(kafkaRequiredString)).as[Metadata]
+  val metaData: Codec[Metadata] =
+    ("topics" | kafkaNullableArray(kafkaRequiredString)).as[Metadata]
 
-  def offsetCommit(implicit topic: Codec[OffsetCommitTopicRequest]): Codec[OffsetCommit] =
-    (("groupId" | kafkaRequiredString) :: ("groupId" | int32) :: ("groupId" | kafkaRequiredString) :: ("retentionTime" | int64) :: ("topics" | kafkaArray(topic))).as[OffsetCommit]
+  val offsetCommit: Codec[OffsetCommit] =
+    (("groupId" | kafkaRequiredString) :: ("groupId" | int32) :: ("groupId" | kafkaRequiredString) :: ("retentionTime" | int64) :: ("topics" | kafkaArray(OffsetCommitTopicRequest.codec))).as[OffsetCommit]
 
-  def offsetFetch(implicit topic: Codec[OffsetFetchTopicRequest]): Codec[OffsetFetch] =
-    (("groupId" | kafkaRequiredString) :: ("topics" | kafkaArray(topic))).as[OffsetFetch]
+  val offsetFetch: Codec[OffsetFetch] =
+    (("groupId" | kafkaRequiredString) :: ("topics" | kafkaArray(OffsetFetchTopicRequest.codec))).as[OffsetFetch]
 
-  def groupCoordinator: Codec[GroupCoordinator] =
+  val groupCoordinator: Codec[GroupCoordinator] =
     ("groupId" | kafkaRequiredString).as[GroupCoordinator]
 
-  def joinGroup(implicit groupProtocol: Codec[JoinGroupProtocolRequest]): Codec[JoinGroup] =
+  val joinGroup: Codec[JoinGroup] =
     (
       ("groupId" | kafkaRequiredString) ::
       ("sessionTimeOut" | int32) ::
       ("memberId" | kafkaRequiredString) ::
       ("protocolType" | kafkaRequiredString) ::
-      ("groupProtocols" | kafkaArray(groupProtocol))
+      ("groupProtocols" | kafkaArray(JoinGroupProtocolRequest.codec))
     ).as[JoinGroup]
 
-  def heartbeat: Codec[Heartbeat] =
+  val heartbeat: Codec[Heartbeat] =
     (("groupId" | kafkaRequiredString) :: ("generationId" | int32) :: ("memberId" | kafkaRequiredString)).as[Heartbeat]
 
-  def leaveGroup: Codec[LeaveGroup] =
+  val leaveGroup: Codec[LeaveGroup] =
     (("groupId" | kafkaRequiredString) :: ("memberId" | kafkaRequiredString)).as[LeaveGroup]
 
-  def listGroups: Codec[ListGroups.type] =
+  val listGroups: Codec[ListGroups.type] =
     provide(ListGroups).as[ListGroups.type]
 
-  def syncGroup(implicit assignment: Codec[SyncGroupGroupAssignmentRequest]): Codec[SyncGroup] =
+  val syncGroup: Codec[SyncGroup] =
     (
       ("groupId" | kafkaRequiredString) ::
       ("generationId" | int32) ::
       ("memberId" | kafkaRequiredString) ::
-      ("groupAssignment" | kafkaArray(assignment))
+      ("groupAssignment" | kafkaArray(SyncGroupGroupAssignmentRequest.codec))
     ).as[SyncGroup]
 
+  val createTopic: Codec[CreateTopic] =
+    (("topics" | kafkaArray(CreateTopicRequest.codec)) :: ("timeout" | int32)).as[CreateTopic]
+
+  val deleteTopic: Codec[DeleteTopic] =
+    (("topics" | kafkaArray(kafkaRequiredString)) :: ("timeout" | int32)).as[DeleteTopic]
 }
 

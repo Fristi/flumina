@@ -3,77 +3,71 @@ package flumina.akkaimpl
 import java.util.concurrent.TimeUnit
 
 import akka.actor.ActorSystem
-import akka.pattern.ask
 import akka.util.Timeout
-import cats.data.Xor
+import cats.free.Free
+import cats.implicits._
 import com.typesafe.config.Config
 import flumina.core.ir._
-import flumina.core.v090.Compression
-import flumina.core.{KafkaAlg, KafkaResult}
+import flumina.core.{KafkaA, KafkaResult}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
 
-final class KafkaClient private (settings: KafkaSettings, actorSystem: ActorSystem) extends KafkaAlg[Future] {
+final class KafkaClient(settings: KafkaSettings)(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) {
 
-  private implicit val timeout: Timeout = Timeout(settings.requestTimeout)
-  private implicit val executionContext: ExecutionContext = actorSystem.dispatcher
+  private val int = new AkkaInterpreter(settings)
 
-  private val coordinator = actorSystem.actorOf(KafkaCoordinator.props(settings))
+  def run[A](kafka: Free[KafkaA, A]) = kafka.foldMap(int)
 
-  //TODO: should we check the invariant topicPartition.partition >= 0?
-  def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]) =
-    (coordinator ? KafkaCoordinator.ProduceN(values, compression)).mapTo[TopicPartitionValues[Long]]
+  def createTopics(topics: Set[TopicDescriptor]): Future[List[TopicResult]] =
+    int(KafkaA.CreateTopics(topics))
 
-  def produceOne(value: TopicPartitionValue[Record]) =
-    (coordinator ? KafkaCoordinator.ProduceOne(value)).mapTo[TopicPartitionValues[Long]]
-
-  def offsetFetch(groupId: String, values: Set[TopicPartition]) =
-    (coordinator ? KafkaCoordinator.OffsetsFetch(groupId, values)).mapTo[TopicPartitionValues[OffsetMetadata]]
-
-  def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) =
-    (coordinator ? KafkaCoordinator.OffsetsCommit(groupId, generationId, memberId, offsets)).mapTo[TopicPartitionValues[Unit]]
-
-  def fetch(values: Set[TopicPartitionValue[Long]]) =
-    (coordinator ? KafkaCoordinator.Fetch(values)).mapTo[TopicPartitionValues[List[RecordEntry]]]
-
-  def joinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol]) =
-    (coordinator ? KafkaCoordinator.JoinGroup(groupId, memberId, protocol, protocols)).mapTo[KafkaResult Xor JoinGroupResult]
-
-  def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) =
-    (coordinator ? KafkaCoordinator.SynchronizeGroup(groupId, generationId, memberId, assignments)).mapTo[KafkaResult Xor MemberAssignment]
-
-  def heartbeat(groupId: String, generationId: Int, memberId: String) =
-    (coordinator ? KafkaCoordinator.Heartbeat(groupId, generationId, memberId)).mapTo[KafkaResult Xor Unit]
+  def deleteTopics(topics: Set[String]): Future[List[TopicResult]] =
+    int(KafkaA.DeleteTopics(topics))
 
   def metadata(topics: Set[String]): Future[Metadata] =
-    (coordinator ? KafkaCoordinator.Metadata(topics)).mapTo[Metadata]
+    int(KafkaA.GetMetadata(topics))
 
-  def groupCoordinator(groupId: String): Future[Xor[KafkaResult, Broker]] =
-    (coordinator ? KafkaCoordinator.GroupCoordinator(groupId)).mapTo[KafkaResult Xor Broker]
+  def groupCoordinator(groupId: String): Future[KafkaResult Either Broker] =
+    int(KafkaA.GroupCoordinator(groupId))
 
-  def leaveGroup(groupId: String, memberId: String) =
-    (coordinator ? KafkaCoordinator.LeaveGroup(groupId, memberId)).mapTo[KafkaResult Xor Unit]
+  def produceOne(values: TopicPartitionValue[Record]): Future[TopicPartitionValues[Long]] =
+    int(KafkaA.ProduceOne(values))
 
-  def listGroups =
-    (coordinator ? KafkaCoordinator.ListGroups).mapTo[KafkaResult Xor List[GroupInfo]]
+  def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]): Future[TopicPartitionValues[Long]] =
+    int(KafkaA.ProduceN(compression, values))
 
-  def pure[A](x: A) = Future.successful(x)
+  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]): Future[TopicPartitionValues[List[RecordEntry]]] =
+    int(KafkaA.Fetch(topicPartitionOffsets))
 
-  def flatMap[A, B](fa: Future[A])(f: (A) => Future[B]) = fa.flatMap(f)
+  def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]): Future[TopicPartitionValues[OffsetMetadata]] =
+    int(KafkaA.OffsetsFetch(groupId, topicPartitions))
 
-  def tailRecM[A, B](a: A)(f: (A) => Future[Either[A, B]]): Future[B] = flatMap(f(a)) {
-    case Left(ohh)  => tailRecM(ohh)(f)
-    case Right(ohh) => pure(ohh)
-  }
+  def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]): Future[TopicPartitionValues[Unit]] =
+    int(KafkaA.OffsetsCommit(groupId, generationId, memberId, offsets))
+
+  def joinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol]): Future[KafkaResult Either JoinGroupResult] =
+    int(KafkaA.JoinGroup(groupId, memberId, protocol, protocols))
+
+  def leaveGroup(groupId: String, memberId: String): Future[Either[KafkaResult, Unit]] =
+    int(KafkaA.LeaveGroup(groupId, memberId))
+
+  def heartbeat(groupId: String, generationId: Int, memberId: String): Future[Either[KafkaResult, Unit]] =
+    int(KafkaA.Heartbeat(groupId, generationId, memberId))
+
+  def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]): Future[KafkaResult Either MemberAssignment] =
+    int(KafkaA.SynchronizeGroup(groupId, generationId, memberId, assignments))
+
+  def listGroups: Future[KafkaResult Either List[GroupInfo]] =
+    int(KafkaA.ListGroups)
+
 }
 
 object KafkaClient {
 
-  def apply()(implicit system: ActorSystem) =
-    new KafkaClient(new KafkaConfig(system).settings, system)
+  def apply(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) = new KafkaClient(new KafkaConfig(S).settings)
 
   private final class KafkaConfig(system: ActorSystem) {
 

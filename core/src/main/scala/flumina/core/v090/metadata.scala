@@ -2,9 +2,9 @@ package flumina.core.v090
 
 import scodec.Codec
 import scodec.codecs._
-import flumina.core._
+import flumina.core.{KafkaResult, _}
 
-final case class MetadataBrokerResponse(nodeId: Int, host: String, port: Int)
+final case class MetadataBrokerResponse(nodeId: Int, host: String, port: Int, rack: Option[String])
 
 final case class MetadataTopicPartitionMetadataResponse(
   kafkaResult: KafkaResult,
@@ -17,17 +17,23 @@ final case class MetadataTopicPartitionMetadataResponse(
 final case class MetadataTopicMetadataResponse(
   kafkaResult: KafkaResult,
   topicName:   String,
+  isInternal:  Boolean,
   partitions:  Vector[MetadataTopicPartitionMetadataResponse]
 )
 
 object MetadataBrokerResponse {
-  implicit val codec: Codec[MetadataBrokerResponse] =
-    (("nodeId" | int32) :: ("host" | kafkaRequiredString) :: ("port" | int32)).as[MetadataBrokerResponse]
+  val codec: Codec[MetadataBrokerResponse] =
+    (
+      ("nodeId" | int32) ::
+      ("host" | kafkaRequiredString) ::
+      ("port" | int32) ::
+      ("rack" | kafkaOptionalString)
+    ).as[MetadataBrokerResponse]
 }
 
 object MetadataTopicPartitionMetadataResponse {
-  implicit def codec(implicit kafkaResult: Codec[KafkaResult]): Codec[MetadataTopicPartitionMetadataResponse] = (
-    ("kafkaResult" | kafkaResult) ::
+  val codec: Codec[MetadataTopicPartitionMetadataResponse] = (
+    ("kafkaResult" | KafkaResult.codec) ::
     ("id" | int32) ::
     ("leader" | int32) ::
     ("replicaes" | kafkaArray(int32)) ::
@@ -36,6 +42,11 @@ object MetadataTopicPartitionMetadataResponse {
 }
 
 object MetadataTopicMetadataResponse {
-  implicit def codec(implicit kafkaResult: Codec[KafkaResult], metadata: Codec[MetadataTopicPartitionMetadataResponse]): Codec[MetadataTopicMetadataResponse] =
-    (("kafkaResult" | kafkaResult) :: ("name" | kafkaRequiredString) :: ("partitions" | kafkaArray(metadata))).as[MetadataTopicMetadataResponse]
+  val codec: Codec[MetadataTopicMetadataResponse] =
+    (
+      ("kafkaResult" | KafkaResult.codec) ::
+      ("name" | kafkaRequiredString) ::
+      ("isInternal" | kafkaBool) ::
+      ("partitions" | kafkaArray(MetadataTopicPartitionMetadataResponse.codec))
+    ).as[MetadataTopicMetadataResponse]
 }

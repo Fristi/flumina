@@ -13,7 +13,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
 
   import context.system
 
-  private final case class StashedRequest(from: ActorRef, request: KafkaBrokerRequest)
+  private case class StashedRequest(from: ActorRef, request: KafkaBrokerRequest)
 
   private val manager = IO(Tcp)
   private val retryStrategy = new KafkaConnectionRetryStrategy.Infinite(5.seconds)

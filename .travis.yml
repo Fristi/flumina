@@ -27,5 +27,4 @@ before_install:
   - chmod +x docker-compose
   - sudo mv docker-compose /usr/local/bin
   - docker pull wurstmeister/zookeeper:latest
-  - docker pull wurstmeister/kafka:0.9.0.1
-  - docker pull wurstmeister/kafka:0.10.0.0
+  - docker pull wurstmeister/kafka:0.10.1.0

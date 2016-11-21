@@ -35,3 +35,19 @@ private[core] class KafkaBytesCodec extends Codec[ByteVector] {
 
   override def sizeBound: SizeBound = codec.sizeBound
 }
+
+private[core] class KafkaNullableArrayCodec[A](valueCodec: Codec[A]) extends Codec[Vector[A]] {
+  val codec = vectorOfN(int32, valueCodec)
+
+  override def decode(bits: BitVector): Attempt[DecodeResult[Vector[A]]] = for {
+    size <- int32.decode(bits)
+    xs <- if (size.value == -1) Attempt.successful(DecodeResult(Vector.empty[A], size.remainder))
+    else codec.decode(bits)
+  } yield xs
+
+  override def encode(value: Vector[A]): Attempt[BitVector] =
+    if (value.isEmpty) int32.encode(-1)
+    else codec.encode(value)
+
+  override def sizeBound: SizeBound = codec.sizeBound
+}

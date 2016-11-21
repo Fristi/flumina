@@ -37,8 +37,7 @@ val scalacOpts = List(
 val commonSettings = Seq(
   version := "0.1.0",
   organization := "net.vectos",
-  scalaOrganization := "org.typelevel",
-  scalaVersion := "2.11.8",
+  scalaVersion := "2.12.0",
   javacOptions += "-Xmx2048M",
   scalacOptions ++= scalacOpts,
   wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
@@ -54,12 +53,12 @@ lazy val core = project.in(file("core"))
   .settings(
       name := "flumina-core",
       libraryDependencies ++= Seq(
-        "org.typelevel" %% "cats-core" % "0.7.2",
-        "org.scodec" %% "scodec-core" % "1.10.2",
+        "org.typelevel" %% "cats-free" % "0.8.1",
+        "org.scodec" %% "scodec-core" % "1.10.3",
         "org.scodec" %% "scodec-bits" % "1.1.2",
         "org.xerial.snappy" % "snappy-java" % "1.1.2.6"
       ),
-      addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
+      addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
   )
 
 lazy val akka = project.in(file("akka"))
@@ -68,21 +67,20 @@ lazy val akka = project.in(file("akka"))
       name := "flumina-akka",
       parallelExecution in Test := false,
       libraryDependencies ++= Seq(
-          "com.typesafe.akka" %% "akka-actor" % "2.4.10",
+          "com.typesafe.akka" %% "akka-actor" % "2.4.13",
           //TEST dependencies.. oh my?
-          "de.heikoseeberger" %% "akka-log4j" % "1.1.4" % "test",
+          "de.heikoseeberger" %% "akka-log4j" % "1.2.0" % "test",
           "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
           "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.6" % "test",
           "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
           "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
-          "com.typesafe.akka" %% "akka-testkit" % "2.4.10" % "test",
-          "com.ironcorelabs" %% "cats-scalatest" % "1.4.0" % "test",
-          "org.apache.kafka" %% "kafka" % "0.10.0.0" % "test",
+          "com.typesafe.akka" %% "akka-testkit" % "2.4.13" % "test",
+          "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
           "com.spotify" % "docker-client" % "3.5.12" % "test",
           "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.0" % "test",
           "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.0" % "test"
       ),
       coverageMinimum := 80,
       coverageFailOnMinimum := false,
-      addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.8.0")
+      addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
   ).dependsOn(core)

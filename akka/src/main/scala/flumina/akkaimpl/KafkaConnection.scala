@@ -21,8 +21,8 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
   import Tcp._
   import context.dispatcher
 
-  private final case class Receiver(address: ActorRef, request: KafkaConnectionRequest, startTime: Long)
-  private final case class Ack(offset: Int) extends Tcp.Event
+  private case class Receiver(address: ActorRef, request: KafkaConnectionRequest, startTime: Long)
+  private sealed case class Ack(offset: Int) extends Tcp.Event
 
   private val maxStored = 100000000L
 
@@ -107,7 +107,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
           inFlightRequests.get(env.correlationId) match {
             case Some(receiver) =>
               if (receiver.request.trace) {
-                log.info(s"<- [corrId: ${env.correlationId}] ${env.response.size / 8}")
+                log.info(s"<- [corrId: ${env.correlationId}] ${env.response.toHex}")
               }
 
               val timeTaken = System.currentTimeMillis() - receiver.startTime
@@ -174,7 +174,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
           buffer(msg)
           inFlightRequests += (nextCorrelationId -> Receiver(sender(), request, System.currentTimeMillis()))
           if (request.trace) {
-            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${msg.size}")
+            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${request.requestPayload.toHex}")
           }
           nextCorrelationId += 1
 
@@ -202,7 +202,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
           buffer(msg)
           inFlightRequests += (nextCorrelationId -> Receiver(sender(), request, System.currentTimeMillis()))
           if (request.trace) {
-            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${msg.size}")
+            log.info(s"-> [apiKey: ${request.apiKey}, corrId: $nextCorrelationId] ${request.requestPayload.toHex}")
           }
           nextCorrelationId += 1
 

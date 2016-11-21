@@ -1,10 +1,39 @@
 package flumina.core.ir
 
-import cats.implicits._
-import cats.data.Ior
-import cats.{Monoid, Semigroup}
+import cats.Monoid
 import flumina.core.KafkaResult
 import scodec.bits.ByteVector
+import scodec.{Attempt, Err}
+
+abstract class Compression(val id: Int)
+
+object Compression {
+  def apply(id: Int): Attempt[Compression] = id match {
+    case 1 => Attempt.successful(GZIP)
+    case 2 => Attempt.successful(Snappy)
+    case _ => Attempt.failure(Err("Compression not recognized"))
+  }
+
+  case object GZIP extends Compression(1)
+  case object Snappy extends Compression(2)
+}
+
+abstract class MessageVersion(val id: Int)
+
+object MessageVersion {
+  case object V0 extends MessageVersion(0)
+  case object V1 extends MessageVersion(1)
+}
+
+final case class ReplicationAssignment(partitionId: Int, replicas: Seq[Int])
+
+final case class TopicDescriptor(
+  topic:             String,
+  nrPartitions:      Option[Int],
+  replicationFactor: Option[Int],
+  replicaAssignment: Seq[ReplicationAssignment],
+  config:            Map[String, String]
+)
 
 final case class Record(key: ByteVector, value: ByteVector)
 
@@ -28,31 +57,12 @@ final case class TopicInfo(leader: Int, replicas: Seq[Int], isr: Seq[Int])
 
 final case class TopicResult(topic: String, kafkaResult: KafkaResult)
 
-final case class Metadata(brokers: Set[Broker], topics: Option[Ior[Set[TopicResult], Set[TopicPartitionValue[TopicInfo]]]]) {
-  val topicsWhichCanBeRetried: Set[String] = topics.map {
-    case Ior.Right(_)      => Set.empty[String]
-    case Ior.Left(left)    => left.map(_.topic)
-    case Ior.Both(left, _) => left.map(_.topic)
-  } getOrElse {
-    Set.empty[String]
-  }
-
-  def withoutRetryErrors = {
-    def withoutRetrieableErrors(t: Ior[Set[TopicResult], Set[TopicPartitionValue[TopicInfo]]]) = t match {
-      case Ior.Left(left)        => Ior.left(left.filterNot(x => KafkaResult.canRetry(x.kafkaResult)))
-      case Ior.Right(right)      => Ior.right(right)
-      case Ior.Both(left, right) => Ior.both(left.filterNot(x => KafkaResult.canRetry(x.kafkaResult)), right)
-    }
-
-    Metadata(brokers, topics.map(withoutRetrieableErrors))
-  }
-}
-
-object Metadata {
-  implicit val semigroup: Semigroup[Metadata] = new Semigroup[Metadata] {
-    def combine(x: Metadata, y: Metadata) = Metadata(x.brokers |+| y.brokers, x.topics |+| y.topics)
-  }
-}
+final case class Metadata(
+  brokers:       Set[Broker],
+  controller:    Broker,
+  topics:        Set[TopicPartitionValue[TopicInfo]],
+  topicsInError: Set[TopicResult]
+)
 
 final case class GroupMember(
   memberId:         String,

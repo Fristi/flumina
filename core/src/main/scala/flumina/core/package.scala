@@ -1,17 +1,10 @@
 package flumina
 
-import cats.Semigroup
-import cats.data.{Ior, Kleisli, XorT}
-import flumina.core.ir.KafkaContext
 import scodec.bits.ByteVector
-import scodec.{Attempt, Codec, Err}
 import scodec.codecs._
+import scodec.{Attempt, Codec, Err}
 
 package object core {
-
-  implicit def catsDataSemigroupIor[A: Semigroup, B: Semigroup]: Semigroup[Ior[A, B]] = new Semigroup[Ior[A, B]] {
-    override def combine(x: Ior[A, B], y: Ior[A, B]): Ior[A, B] = x append y
-  }
 
   def attempt[A](a: => A): Attempt[A] = {
     try { Attempt.successful(a) }
@@ -34,9 +27,6 @@ package object core {
       map.updated(key, update(map.getOrElse(key, default)))
   }
 
-  type KafkaReader[F[_], T] = Kleisli[F, KafkaContext, T]
-  type KafkaFailure[F[_], T] = XorT[F, KafkaResult, T]
-
   val kafkaOptionalString: Codec[Option[String]] = new KafkaStringCodec
   val kafkaRequiredString: Codec[String] = {
     def encode(s: String): Attempt[Option[String]] = Attempt.Successful(Some(s))
@@ -47,7 +37,36 @@ package object core {
     kafkaOptionalString.exmap(decode, encode)
   }
 
+  def kafkaBool = int8.xmap[Boolean](x => x == 1, x => if (x) 1 else 0)
+
   val kafkaBytes: Codec[ByteVector] = new KafkaBytesCodec
 
-  def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] = vectorOfN(int32, valueCodec)
+  def kafkaNullableArray[A](valueCodec: Codec[A]): Codec[Vector[A]] =
+    new KafkaNullableArrayCodec(valueCodec)
+
+  def kafkaArray[A](valueCodec: Codec[A]): Codec[Vector[A]] =
+    vectorOfN(int32, valueCodec)
+
+  def kafkaMap[K, V](keyCodec: Codec[K], valueCodec: Codec[V]): Codec[Map[K, V]] =
+    kafkaArray(keyCodec ~ valueCodec).xmap(_.toMap, _.toVector)
+
+  val kafkaOptionalInt32 = {
+    def decode(x: Int): Option[Int] = if (x === -1) None else Some(x)
+    def encode(x: Option[Int]) = x match {
+      case Some(n) => n
+      case None    => -1
+    }
+
+    int32.xmap(decode, encode)
+  }
+
+  val kafkaOptionalInt16 = {
+    def decode(x: Int): Option[Int] = if (x === -1) None else Some(x)
+    def encode(x: Option[Int]) = x match {
+      case Some(n) => n
+      case None    => -1
+    }
+
+    int16.xmap(decode, encode)
+  }
 }

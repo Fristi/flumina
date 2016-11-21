@@ -8,6 +8,6 @@ import scodec.bits.ByteVector
 final case class SyncGroupGroupAssignmentRequest(memberId: String, assignmentData: ByteVector)
 
 object SyncGroupGroupAssignmentRequest {
-  implicit def codec: Codec[SyncGroupGroupAssignmentRequest] =
+  val codec: Codec[SyncGroupGroupAssignmentRequest] =
     (("memberId" | kafkaRequiredString) :: ("assignmentData" | kafkaBytes)).as[SyncGroupGroupAssignmentRequest]
 }

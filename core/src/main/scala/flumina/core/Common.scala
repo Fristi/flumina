@@ -40,6 +40,18 @@ object KafkaResult {
   case object TopicAuthorizationFailed extends KafkaResult
   case object GroupAuthorizationFailed extends KafkaResult
   case object ClusterAuthorizationFailed extends KafkaResult
+  case object InvalidTimestamp extends KafkaResult
+  case object UnsupportedSASLMechanism extends KafkaResult
+  case object IllegalSASLState extends KafkaResult
+  case object UnsupportedVersion extends KafkaResult
+  case object TopicAlreadyExists extends KafkaResult
+  case object InvalidPartitions extends KafkaResult
+  case object InvalidReplicationFactor extends KafkaResult
+  case object InvalidReplicaAssignment extends KafkaResult
+  case object InvalidConfig extends KafkaResult
+  case object NotController extends KafkaResult
+  case object InvalidRequest extends KafkaResult
+  case object UnsupportedForMessageFormat extends KafkaResult
 
   def canRetry(result: KafkaResult) = result match {
     case InvalidMessage |
@@ -88,6 +100,18 @@ object KafkaResult {
     .typecase(29, provide(TopicAuthorizationFailed))
     .typecase(30, provide(GroupAuthorizationFailed))
     .typecase(31, provide(ClusterAuthorizationFailed))
+    .typecase(32, provide(InvalidTimestamp))
+    .typecase(33, provide(UnsupportedSASLMechanism))
+    .typecase(34, provide(IllegalSASLState))
+    .typecase(35, provide(UnsupportedVersion))
+    .typecase(36, provide(TopicAlreadyExists))
+    .typecase(37, provide(InvalidPartitions))
+    .typecase(38, provide(InvalidReplicationFactor))
+    .typecase(39, provide(InvalidReplicaAssignment))
+    .typecase(40, provide(InvalidConfig))
+    .typecase(41, provide(NotController))
+    .typecase(42, provide(InvalidRequest))
+    .typecase(43, provide(UnsupportedForMessageFormat))
 }
 
 final case class ConsumerProtocolMetadataData(version: Int, subscriptions: Vector[String], userData: ByteVector)

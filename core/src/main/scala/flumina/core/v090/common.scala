@@ -3,6 +3,7 @@ package flumina.core.v090
 import java.util.Date
 
 import flumina.core._
+import flumina.core.ir.{Compression, MessageVersion}
 import scodec.bits.{BitVector, ByteVector, crc}
 import scodec.codecs._
 import scodec.{Attempt, Codec, DecodeResult, Encoder, Err, SizeBound}
@@ -18,26 +19,6 @@ sealed trait TimeData {
 object TimeData {
   final case class LogAppendTime(time: Date) extends TimeData
   final case class CreateTime(time: Date) extends TimeData
-}
-
-abstract class Compression(val id: Int)
-
-object Compression {
-  def apply(id: Int): Attempt[Compression] = id match {
-    case 1 => Attempt.successful(GZIP)
-    case 2 => Attempt.successful(Snappy)
-    case _ => Attempt.failure(Err("Compression not recognized"))
-  }
-
-  case object GZIP extends Compression(1)
-  case object Snappy extends Compression(2)
-}
-
-abstract class MessageVersion(val id: Int)
-
-object MessageVersion {
-  case object V0 extends MessageVersion(0)
-  case object V1 extends MessageVersion(1)
 }
 
 object Message {
@@ -224,7 +205,7 @@ object MessageSetCodec {
 
       "V1" | (
         ("Ignored Attribute" | ignore(4)) ::
-        ("Time flag" | bool) ::
+        ("Time flag" | kafkaBool) ::
         ("Compression" | compressionAttribute) ::
         ("Time" | timeCodec) ::
         ("Key" | variableSizeBytes(int32, bytes)) ::

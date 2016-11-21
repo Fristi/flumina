@@ -2,7 +2,7 @@ package flumina.akkaimpl
 
 import java.util.{Timer, TimerTask}
 
-import scala.concurrent.Promise
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 
@@ -18,5 +18,7 @@ object FutureUtils {
     timer.schedule(task, duration.toMillis)
     promise.future
   }
+
+  def delayFuture[A](duration: FiniteDuration, f: => Future[A])(implicit EC: ExecutionContext): Future[A] = delay(duration).flatMap(_ => f)
 
 }
