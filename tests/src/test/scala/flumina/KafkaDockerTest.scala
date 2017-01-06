@@ -1,4 +1,4 @@
-package flumina.akkaimpl
+package flumina
 
 import java.io.File
 
@@ -9,7 +9,7 @@ trait KafkaDockerTest extends BeforeAndAfterAll { self: Suite =>
   def kafkaScaling: Int
 
   private val controlDocker = System.getenv("CONTROL_DOCKER") == "1"
-  private val dockerFile = new File(s"akka/src/test/resources/docker-compose-kafka_$kafkaVersion.yml")
+  private val dockerFile = new File(s"tests/src/test/resources/docker-compose-kafka_$kafkaVersion.yml")
 
   override def beforeAll() = {
     super.beforeAll()

@@ -8,6 +8,7 @@ import cats.free.Free
 import cats.implicits._
 import cats.scalatest.EitherMatchers
 import com.typesafe.config.ConfigFactory
+import flumina.{KafkaDocker, KafkaDockerTest}
 import flumina.core._
 import flumina.core.ir._
 import org.scalatest._
@@ -179,7 +180,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
     "create and deleteTopic" in new KafkaScope {
       val prg = for {
-        _ <- kafka.createTopics(Set(TopicDescriptor(topic, Some(3), Some(1), Seq.empty, Map.empty)))
+        _ <- kafka.createTopics(Set(TopicDescriptor(topic, Some(3), Some(1), Seq.empty, Map())))
         topicMetadata <- kafka.metadata(Set(topic))
         _ <- kafka.deleteTopics(Set(topic))
       } yield topicMetadata
@@ -293,7 +294,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
     ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
   }
 
-  private lazy val client = KafkaClient(system, Timeout(15.seconds), system.dispatcher)
+  private lazy val client = KafkaClient()(system, Timeout(15.seconds), system.dispatcher)
 
   def run[A](dsl: Free[KafkaA, A]) = client.run(dsl)
 

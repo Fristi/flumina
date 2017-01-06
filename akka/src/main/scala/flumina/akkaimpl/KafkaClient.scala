@@ -73,7 +73,7 @@ final class KafkaClient(settings: KafkaSettings)(implicit S: ActorSystem, T: Tim
 
 object KafkaClient {
 
-  def apply(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) = new KafkaClient(new KafkaConfig(S).settings)
+  def apply()(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) = new KafkaClient(new KafkaConfig(S).settings)
 
   private final class KafkaConfig(system: ActorSystem) {
 

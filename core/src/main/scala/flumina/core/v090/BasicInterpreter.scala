@@ -311,14 +311,14 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       CreateTopicRequest(td.topic, td.nrPartitions, td.replicationFactor, td.replicaAssignment.map(toReplicaAssignment).toVector, td.config)
     }
 
-    doRequest(_ => KafkaRequest.CreateTopic(topics.map(toCreateTopicRequest).toVector, 2000), trace = false) {
+    doRequest(_ => KafkaRequest.CreateTopic(topics.map(toCreateTopicRequest).toVector, 5000), trace = false) {
       case u: KafkaResponse.CreateTopic =>
         F.pure(u.result.map(toTopicResult).toList)
     }
   }
 
   private def deleteTopics(topics: Traversable[String]) = {
-    doRequest(_ => KafkaRequest.DeleteTopic(topics.toVector, 2000), trace = false) {
+    doRequest(_ => KafkaRequest.DeleteTopic(topics.toVector, 5000), trace = false) {
       case u: KafkaResponse.DeleteTopic =>
         F.pure(u.result.map(toTopicResult).toList)
     }

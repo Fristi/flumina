@@ -1,4 +1,4 @@
-package flumina.akkaimpl
+package flumina
 
 import java.io.File
 

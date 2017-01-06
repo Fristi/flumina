@@ -13,3 +13,5 @@ addSbtPlugin("org.wartremover" % "sbt-wartremover" % "1.2.1")
 addSbtPlugin("org.scalariform" % "sbt-scalariform" % "1.6.0")
 
 addSbtPlugin("io.get-coursier" % "sbt-coursier" % "1.0.0-M14")
+
+addSbtPlugin("pl.project13.scala" %  "sbt-jmh" % "0.2.17")

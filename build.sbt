@@ -34,11 +34,17 @@ val scalacOpts = List(
   "-Ypartial-unification"
 )
 
+lazy val doNotPublishArtifact = Seq(
+  publishArtifact := false,
+  publishArtifact in (Compile, packageDoc) := false,
+  publishArtifact in (Compile, packageSrc) := false,
+  publishArtifact in (Compile, packageBin) := false
+)
+
 val commonSettings = Seq(
   version := "0.1.0",
   organization := "net.vectos",
   scalaVersion := "2.12.0",
-  javacOptions += "-Xmx2048M",
   scalacOptions ++= scalacOpts,
   wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.StringPlusAny, Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
   wartremoverErrors in (Test, compile) := Seq(),
@@ -65,22 +71,45 @@ lazy val akka = project.in(file("akka"))
   .settings(commonSettings)
   .settings(
       name := "flumina-akka",
-      parallelExecution in Test := false,
       libraryDependencies ++= Seq(
-          "com.typesafe.akka" %% "akka-actor" % "2.4.13",
-          //TEST dependencies.. oh my?
-          "de.heikoseeberger" %% "akka-log4j" % "1.2.0" % "test",
-          "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
-          "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.6" % "test",
-          "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
-          "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
-          "com.typesafe.akka" %% "akka-testkit" % "2.4.13" % "test",
-          "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
-          "com.spotify" % "docker-client" % "3.5.12" % "test",
-          "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.0" % "test",
-          "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.0" % "test"
+          "com.typesafe.akka" %% "akka-actor" % "2.4.13"
       ),
-      coverageMinimum := 80,
-      coverageFailOnMinimum := false,
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
   ).dependsOn(core)
+
+
+lazy val monix = project.in(file("monix"))
+  .settings(commonSettings)
+  .settings(
+    name := "flumina-monix",
+    parallelExecution in Test := false,
+    libraryDependencies ++= Seq(
+      "io.monix" %% "monix" % "2.1.0"
+    )
+).dependsOn(akka)
+
+lazy val tests = project.in(file("tests"))
+  .settings(commonSettings)
+  .settings(doNotPublishArtifact)
+  .settings(
+    name := "flumina-tests",
+    parallelExecution in Test := false,
+    coverageMinimum := 80,
+    coverageFailOnMinimum := false,
+    libraryDependencies ++= Seq(
+      "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
+      "de.heikoseeberger" %% "akka-log4j" % "1.2.0" % "test",
+      "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
+      "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.6" % "test",
+      "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
+      "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
+      "com.typesafe.akka" %% "akka-testkit" % "2.4.13" % "test",
+      "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
+      "com.spotify" % "docker-client" % "3.5.12" % "test",
+      "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.0" % "test",
+      "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.0" % "test",
+      "org.rocksdb" % "rocksdbjni" % "4.11.2" % "test",
+      "io.monix" %% "monix-cats" % "2.1.0" % "test"
+    )
+)
+.dependsOn(monix)
