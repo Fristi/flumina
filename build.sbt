@@ -44,7 +44,7 @@ lazy val doNotPublishArtifact = Seq(
 val commonSettings = Seq(
   version := "0.1.0",
   organization := "net.vectos",
-  scalaVersion := "2.12.0",
+  scalaVersion := "2.12.1",
   scalacOptions ++= scalacOpts,
   wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.StringPlusAny, Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
   wartremoverErrors in (Test, compile) := Seq(),
@@ -72,6 +72,7 @@ lazy val akka = project.in(file("akka"))
   .settings(
       name := "flumina-akka",
       libraryDependencies ++= Seq(
+          "com.github.melrief" %% "pureconfig" % "0.6.0",
           "com.typesafe.akka" %% "akka-actor" % "2.4.13"
       ),
       addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")

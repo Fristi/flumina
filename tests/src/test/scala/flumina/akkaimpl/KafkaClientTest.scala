@@ -2,7 +2,6 @@ package flumina.akkaimpl
 
 import akka.actor.ActorSystem
 import akka.testkit.TestKit
-import akka.util.Timeout
 import cats.data.EitherT
 import cats.free.Free
 import cats.implicits._
@@ -286,15 +285,14 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
   private def zookeeperPort: Int = 2181
 
   implicit lazy val system: ActorSystem = {
-    def quote(str: String) = "\"" + str + "\""
-    val bootstrapBrokers = List(s"localhost:$kafka1Port").map(quote).mkString(",")
+    val bootstrapBrokers = s"""{ host: "localhost", port: $kafka1Port }"""
     val bootstrapBrokersString = s"flumina.bootstrap-brokers = [$bootstrapBrokers]"
     val kafkaConfig = ConfigFactory.parseString(bootstrapBrokersString)
 
     ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
   }
 
-  private lazy val client = KafkaClient()(system, Timeout(15.seconds), system.dispatcher)
+  private lazy val client = KafkaClient()(system, system.dispatcher)
 
   def run[A](dsl: Free[KafkaA, A]) = client.run(dsl)
 

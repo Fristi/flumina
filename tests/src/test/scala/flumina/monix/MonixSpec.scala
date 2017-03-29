@@ -2,7 +2,6 @@ package flumina.monix
 
 import akka.actor.ActorSystem
 import akka.testkit.TestKit
-import akka.util.Timeout
 import cats.scalatest.EitherMatchers
 import com.typesafe.config.ConfigFactory
 import flumina.akkaimpl.KafkaClient
@@ -56,15 +55,14 @@ class MonixSpec extends Suite with WordSpecLike
   private def zookeeperPort: Int = 2181
 
   implicit lazy val system: ActorSystem = {
-    def quote(str: String) = "\"" + str + "\""
-    val bootstrapBrokers = List(s"localhost:$kafka1Port").map(quote).mkString(",")
+    val bootstrapBrokers = s"""{ host: "localhost", port: $kafka1Port }"""
     val bootstrapBrokersString = s"flumina.bootstrap-brokers = [$bootstrapBrokers]"
     val kafkaConfig = ConfigFactory.parseString(bootstrapBrokersString)
 
     ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
   }
 
-  private lazy val client = KafkaClient()(system, Timeout(15.seconds), system.dispatcher)
+  private lazy val client = KafkaClient()(system, system.dispatcher)
 
   override implicit def patienceConfig = PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
 

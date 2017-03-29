@@ -1,21 +1,18 @@
 package flumina.akkaimpl
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.ActorSystem
 import akka.util.Timeout
 import cats.free.Free
 import cats.implicits._
-import com.typesafe.config.Config
 import flumina.core.ir._
 import flumina.core.{KafkaA, KafkaResult}
+import pureconfig.loadConfig
 
-import scala.collection.JavaConverters._
-import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.Try
 
-final class KafkaClient(settings: KafkaSettings)(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) {
+final class KafkaClient private (settings: KafkaSettings)(implicit S: ActorSystem, EC: ExecutionContext) {
+
+  private implicit val requestTimeout: Timeout = Timeout(settings.requestTimeout)
 
   private val int = new AkkaInterpreter(settings)
 
@@ -73,46 +70,6 @@ final class KafkaClient(settings: KafkaSettings)(implicit S: ActorSystem, T: Tim
 
 object KafkaClient {
 
-  def apply()(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) = new KafkaClient(new KafkaConfig(S).settings)
-
-  private final class KafkaConfig(system: ActorSystem) {
-
-    val config: Config = system.settings.config
-
-    private def getDuration(key: String): FiniteDuration = FiniteDuration(config.getDuration(key).toNanos, TimeUnit.NANOSECONDS)
-
-    val bootstrapBrokers = config.getStringList("flumina.bootstrap-brokers").asScala
-    val connectionsPerBroker = config.getInt("flumina.connections-per-broker")
-    val retryBackoff = getDuration("flumina.retry-backoff")
-    val fetchMaxWaitTime = getDuration("flumina.fetch-max-wait-time")
-    val produceTimeout = getDuration("flumina.produce-timeout")
-    val groupSessionTimeout = getDuration("flumina.group-session-timeout")
-    val requestTimeout = getDuration("flumina.request-timeout")
-    val retryMaxCount = config.getInt("flumina.retry-max-count")
-    val fetchMaxBytes = config.getInt("flumina.fetch-max-bytes")
-
-    val brokers = bootstrapBrokers.map { x =>
-      val parts = x.split(":").toList
-      (for {
-        host <- parts.headOption
-        portRaw <- parts.lift(1)
-        port <- Try(portRaw.toInt).toOption
-      } yield KafkaBroker.Node(host, port)) getOrElse (throw new Exception(s"Unable to convert: $x to a broker (format = host:port)"))
-    }
-
-    val settings = KafkaSettings(
-      brokers,
-      connectionsPerBroker,
-      KafkaOperationalSettings(
-        retryBackoff,
-        retryMaxCount,
-        fetchMaxWaitTime,
-        fetchMaxBytes,
-        produceTimeout,
-        groupSessionTimeout
-      ),
-      requestTimeout
-    )
-  }
-
+  def apply()(implicit S: ActorSystem, EC: ExecutionContext): KafkaClient =
+    new KafkaClient(loadConfig[KafkaSettings](S.settings.config.getConfig("flumina")).fold(errs => sys.error(s"Error loading config: $errs"), identity))
 }
