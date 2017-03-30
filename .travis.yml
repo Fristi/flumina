@@ -12,7 +12,7 @@ script:
 after_success:
   - sbt coveralls
   - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash
-    scripts/publishMicrosite.sh; fi
+    scripts/publish-microsite.sh; fi
   - if [ "$TRAVIS_PULL_REQUEST" = "true" ]; then echo "Not in master branch, skipping
     deploy and release"; fi
 scala:
@@ -33,8 +33,7 @@ before_install:
   - docker pull wurstmeister/zookeeper:latest
   - docker pull wurstmeister/kafka:0.10.1.0
   - export PATH=${PATH}:./vendor/bundle
-  - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash
-    scripts/decrypt-keys.sh; fi
+  - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash scripts/decrypt-keys.sh; fi
 install:
   - rvm use 2.2.3 --install --fuzzy
   - gem update --system
