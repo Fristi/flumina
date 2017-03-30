@@ -1,0 +1,7 @@
+options:
+
+  - title: How to Learn
+    url: docs/index.html
+
+  - title: Hello World
+    url: docs/hello-world.html

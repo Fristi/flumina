@@ -1,5 +1,6 @@
 logLevel := Level.Warn
 
+
 addSbtPlugin("com.updateimpact" % "updateimpact-sbt-plugin" % "2.1.1")
 
 addSbtPlugin("net.virtual-void" % "sbt-dependency-graph" % "0.8.2")
@@ -14,4 +15,6 @@ addSbtPlugin("org.scalariform" % "sbt-scalariform" % "1.6.0")
 
 addSbtPlugin("io.get-coursier" % "sbt-coursier" % "1.0.0-M14")
 
-addSbtPlugin("pl.project13.scala" %  "sbt-jmh" % "0.2.17")
+addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.2.17")
+
+addSbtPlugin("com.47deg"  % "sbt-microsites" % "0.5.1")

@@ -38,7 +38,7 @@ class MonixSpec extends Suite with WordSpecLike
       val producer = client.produce[Long, Long](topic, parts, OverflowStrategy.Unbounded, x => Record(ByteVector.empty, ByteVector(x.toByte)), identity, Compression.Snappy)
 
       val prg = for {
-        _ <- Task.fromFuture(client.createTopics(Set(TopicDescriptor(topic, Some(parts), Some(1), Seq.empty, Map.empty))))
+        _ <- Task.fromFuture(client.createTopics(topics = Set(TopicDescriptor(topic = topic, nrPartitions = Some(parts), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map.empty))))
         _ <- Observable.range(0, nr).consumeWith(producer)
         _ <- client.consume(topic, ConsumptionStrategy.TerminateEndOfStream, offsetStore).consumeWith(Consumer.complete)
         offsets <- offsetStore.load(topic)

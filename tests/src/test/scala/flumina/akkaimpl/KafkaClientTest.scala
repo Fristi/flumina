@@ -31,7 +31,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
   "KafkaClient" should {
 
-    val testRecord = Record(ByteVector.empty, ByteVector("Hello world".getBytes()))
+    val testRecord = Record(key = ByteVector.empty, value = ByteVector("Hello world".getBytes()))
 
     "groupCoordinator" in new KafkaScope {
       whenReady(run(kafka.groupCoordinator("test"))) { result =>
@@ -40,7 +40,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
     }
 
     "produceOne" in new KafkaScope {
-      val topicPartition = TopicPartition(topic, 0)
+      val topicPartition = TopicPartition(topic = topic, partition = 0)
       val prg = for {
         res <- kafka.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map())))
         result <- kafka.produceOne(TopicPartitionValue(topicPartition, testRecord))
