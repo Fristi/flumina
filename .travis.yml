@@ -14,7 +14,7 @@ after_success:
   - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash scripts/publish-microsite.sh; fi
   - if [ "$TRAVIS_PULL_REQUEST" = "true" ]; then echo "Not in master branch, skipping deploy and release"; fi
 scala:
-   - 2.11.8
+   - 2.12.1
 jdk:
    - oraclejdk8
 services:
