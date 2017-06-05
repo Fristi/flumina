@@ -20,7 +20,9 @@ import flumina.avro4s._
 import _root_.monix.eval._
 import _root_.monix.reactive._
 
-class FeaturesSpec extends Suite with WordSpecLike
+class FeaturesSpec
+    extends Suite
+    with WordSpecLike
     with KafkaDockerTest
     with BeforeAndAfterAll
     with ScalaFutures
@@ -36,10 +38,12 @@ class FeaturesSpec extends Suite with WordSpecLike
 
   private val personTopic = s"person${System.nanoTime()}"
 
-  private implicit val timeout: Timeout = 3.seconds
+  private implicit val timeout: Timeout            = 3.seconds
   private implicit val longCodec: KafkaCodec[Long] = KafkaCodec.fromValueCodec(uint32)
-  private implicit val personCodec: KafkaCodec[Person] = avroCodec[Person](personTopic, new MockSchemaRegistryClient())
-  private implicit val personParitioner: KafkaPartitioner[Person] = KafkaPartitioner.stringPartitioner.contramap[Person](_.name)
+  private implicit val personCodec: KafkaCodec[Person] =
+    avroCodec[Person](personTopic, new MockSchemaRegistryClient())
+  private implicit val personParitioner: KafkaPartitioner[Person] =
+    KafkaPartitioner.stringPartitioner.contramap[Person](_.name)
 
   case class TestState(count: Int, order: Map[TopicPartition, List[Long]]) {
     def updateWith[A](topicPartitionValue: TopicPartitionValue[OffsetValue[A]]): TestState =
@@ -48,15 +52,17 @@ class FeaturesSpec extends Suite with WordSpecLike
 
   "Monix" should {
     "produce and consume" in {
-      val parts = 10
-      val nr = 100000l
-      val topic = s"test${System.nanoTime()}"
+      val parts    = 10
+      val nr       = 100000l
+      val topic    = s"test${System.nanoTime()}"
       val producer = client.produce[Long](topic = topic, nrPartitions = 10)
 
       val prg = for {
-        _ <- Task.fromFuture(client.createTopics(topics = Set(TopicDescriptor(topic = topic, nrPartitions = Some(parts), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map.empty))))
+        _ <- Task.fromFuture(
+          client.createTopics(topics = Set(TopicDescriptor(topic = topic, nrPartitions = Some(parts), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map.empty))))
         _ <- Observable.range(0, nr).consumeWith(producer)
-        testState <- client.messages[Long](topic, ConsumptionStrategy.TerminateEndOfStream)
+        testState <- client
+          .messages[Long](topic, ConsumptionStrategy.TerminateEndOfStream)
           .consumeWith(Consumer.foldLeft(TestState(0, Map.empty))(_.updateWith(_)))
       } yield testState
 
@@ -71,14 +77,16 @@ class FeaturesSpec extends Suite with WordSpecLike
   "Avro4s" should {
     "produce and consume" in {
       val parts = 1
-      val nr = 100000l
+      val nr    = 100000l
 
       val producer = client.produce[Person](topic = personTopic, nrPartitions = 1)
 
       val prg = for {
-        _ <- Task.fromFuture(client.createTopics(topics = Set(TopicDescriptor(topic = personTopic, nrPartitions = Some(parts), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map.empty))))
+        _ <- Task.fromFuture(
+          client.createTopics(topics = Set(TopicDescriptor(topic = personTopic, nrPartitions = Some(parts), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map.empty))))
         _ <- Observable.range(0, nr).map(_ => Person("Mark", 30)).consumeWith(producer)
-        testState <- client.messages[Person](personTopic, ConsumptionStrategy.TerminateEndOfStream)
+        testState <- client
+          .messages[Person](personTopic, ConsumptionStrategy.TerminateEndOfStream)
           .consumeWith(Consumer.foldLeft(0l)((acc, _) => acc + 1l))
       } yield testState
 
@@ -89,19 +97,21 @@ class FeaturesSpec extends Suite with WordSpecLike
   final def kafkaVersion = "0.10.1.0"
   final def kafkaScaling = 3
 
-  private def kafka1Port: Int = KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Unable to get port for kafka 1"))
+  private def kafka1Port: Int =
+    KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Unable to get port for kafka 1"))
 
   implicit lazy val system: ActorSystem = {
-    val bootstrapBrokers = s"""{ host: "localhost", port: $kafka1Port }"""
+    val bootstrapBrokers       = s"""{ host: "localhost", port: $kafka1Port }"""
     val bootstrapBrokersString = s"flumina.bootstrap-brokers = [$bootstrapBrokers]"
-    val kafkaConfig = ConfigFactory.parseString(bootstrapBrokersString)
+    val kafkaConfig            = ConfigFactory.parseString(bootstrapBrokersString)
 
     ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
   }
 
   private lazy val client = KafkaClient()(system, system.dispatcher)
 
-  override implicit def patienceConfig = PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
+  override implicit def patienceConfig =
+    PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
 
   override def afterAll() = {
     TestKit.shutdownActorSystem(system)

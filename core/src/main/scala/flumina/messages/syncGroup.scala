@@ -9,5 +9,6 @@ final case class SyncGroupGroupAssignmentRequest(memberId: String, assignmentDat
 
 object SyncGroupGroupAssignmentRequest {
   val codec: Codec[SyncGroupGroupAssignmentRequest] =
-    (("memberId" | kafkaRequiredString) :: ("assignmentData" | kafkaBytes)).as[SyncGroupGroupAssignmentRequest]
+    (("memberId" | kafkaRequiredString) :: ("assignmentData" | kafkaBytes))
+      .as[SyncGroupGroupAssignmentRequest]
 }

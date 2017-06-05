@@ -17,7 +17,9 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
-abstract class KafkaClientTest extends Suite with WordSpecLike
+abstract class KafkaClientTest
+    extends Suite
+    with WordSpecLike
     with KafkaDockerTest
     with BeforeAndAfterAll
     with ScalaFutures
@@ -40,12 +42,11 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
     "produceOne" in new KafkaScope {
       val topicPartition = TopicPartition(topic = topic, partition = 0)
       val prg = for {
-        res <- kafka.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map())))
+        res    <- kafka.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map())))
         result <- kafka.produceOne(TopicPartitionValue(topicPartition, testRecord))
       } yield result
 
       whenReady(run(prg)) { result =>
-
         result.success should have size 1
         result.errors should have size 0
 
@@ -56,8 +57,8 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
     "produceN & fetch" in new KafkaScope {
       val prg = for {
-        _ <- kafka.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map())))
-        _ <- kafka.produceN(Compression.GZIP, List.tabulate(60)(i => TopicPartitionValue(TopicPartition(topic, i % 3), testRecord)))
+        _           <- kafka.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map())))
+        _           <- kafka.produceN(Compression.GZIP, List.tabulate(60)(i => TopicPartitionValue(TopicPartition(topic, i % 3), testRecord)))
         fetchResult <- kafka.fetch(Set(TopicPartitionValue(TopicPartition(topic, 0), 0l)))
       } yield fetchResult
 
@@ -91,16 +92,17 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
         userData = ByteVector("more-test".getBytes)
       )
 
-      val topicPartition = TopicPartition(topic, 0)
+      val topicPartition      = TopicPartition(topic, 0)
       val topicPartitionValue = TopicPartitionValue(topicPartition, testRecord)
 
       val prg = for {
-        _ <- pure(client.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map()))))
-        _ <- pure(client.produceN(Compression.Snappy, List(topicPartitionValue, topicPartitionValue)))
-        gr <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), ByteVector.empty))))))
-        _ <- fromEither(client.syncGroup(groupId, gr.generationId, gr.memberId, Seq(GroupAssignment(gr.memberId, memberAssignment))))
+        _           <- pure(client.createTopics(Set(TopicDescriptor(topic = topic, nrPartitions = Some(3), replicationFactor = Some(1), replicaAssignment = Seq.empty, config = Map()))))
+        _           <- pure(client.produceN(Compression.Snappy, List(topicPartitionValue, topicPartitionValue)))
+        gr          <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), ByteVector.empty))))))
+        _           <- fromEither(client.syncGroup(groupId, gr.generationId, gr.memberId, Seq(GroupAssignment(gr.memberId, memberAssignment))))
         fetchResult <- pure(client.fetch(Set(TopicPartitionValue(topicPartition, 0l))))
-        offsetCommitResult <- pure(client.offsetCommit(groupId, gr.generationId, gr.memberId, Map(topicPartition -> OffsetMetadata(fetchResult.success.maxBy(_.result.offset).result.offset, Some("metadata")))))
+        offsetCommitResult <- pure(
+          client.offsetCommit(groupId, gr.generationId, gr.memberId, Map(topicPartition -> OffsetMetadata(fetchResult.success.maxBy(_.result.offset).result.offset, Some("metadata")))))
         offsetFetchResult <- pure(client.offsetFetch(groupId, Set(topicPartition)))
       } yield offsetCommitResult -> offsetFetchResult
 
@@ -120,7 +122,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
     "leaveGroup" in new KafkaScope {
       val prg = for {
-        joinGroupResult <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), ByteVector.empty))))))
+        joinGroupResult  <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Seq("test"), ByteVector.empty))))))
         leaveGroupResult <- fromEither(client.leaveGroup(groupId, joinGroupResult.memberId))
       } yield leaveGroupResult
 
@@ -174,9 +176,9 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
     "create and deleteTopic" in new KafkaScope {
       val prg = for {
-        _ <- kafka.createTopics(Set(TopicDescriptor(topic, Some(3), Some(1), Seq.empty, Map())))
+        _             <- kafka.createTopics(Set(TopicDescriptor(topic, Some(3), Some(1), Seq.empty, Map())))
         topicMetadata <- kafka.metadata(Set(topic))
-        _ <- kafka.deleteTopics(Set(topic))
+        _             <- kafka.deleteTopics(Set(topic))
       } yield topicMetadata
 
       whenReady(run(prg)) {
@@ -238,7 +240,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
       val consumerProtocolMetadata = ConsumerProtocol(0, Seq("test"), ByteVector("test".getBytes))
 
       val prg = for {
-        joinGroupResult <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata)))))
+        joinGroupResult     <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(consumerProtocolMetadata)))))
         describeGroupResult <- pure(client.describeGroups(Set(groupId)))
       } yield joinGroupResult -> describeGroupResult
 
@@ -266,13 +268,14 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
   final def kafkaScaling = 3
 
-  private def kafka1Port: Int = KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Unable to get port for kafka 1"))
+  private def kafka1Port: Int =
+    KafkaDocker.getPortFor("kafka", 1).getOrElse(sys.error("Unable to get port for kafka 1"))
   private def zookeeperPort: Int = 2181
 
   implicit lazy val system: ActorSystem = {
-    val bootstrapBrokers = s"""{ host: "localhost", port: $kafka1Port }"""
+    val bootstrapBrokers       = s"""{ host: "localhost", port: $kafka1Port }"""
     val bootstrapBrokersString = s"flumina.bootstrap-brokers = [$bootstrapBrokers]"
-    val kafkaConfig = ConfigFactory.parseString(bootstrapBrokersString)
+    val kafkaConfig            = ConfigFactory.parseString(bootstrapBrokersString)
 
     ActorSystem("default", kafkaConfig.withFallback(ConfigFactory.load()))
   }
@@ -283,10 +286,11 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
 
   trait KafkaScope {
     lazy val groupId = s"group${System.nanoTime().toString}"
-    lazy val topic = s"test${System.nanoTime().toString}"
+    lazy val topic   = s"test${System.nanoTime().toString}"
   }
 
-  override implicit def patienceConfig = PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
+  override implicit def patienceConfig =
+    PatienceConfig(timeout = 60.seconds, interval = 10.milliseconds)
 
   override def afterAll() = {
     TestKit.shutdownActorSystem(system)

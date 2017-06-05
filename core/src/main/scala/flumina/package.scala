@@ -8,8 +8,9 @@ import scodec.{Attempt, Codec, Err}
 package object flumina {
 
   private[flumina] def attempt[A](a: => A): Attempt[A] = {
-    try { Attempt.successful(a) }
-    catch { case t: Throwable => Attempt.failure(Err(s"${t.getClass} : ${t.getMessage}")) }
+    try { Attempt.successful(a) } catch {
+      case t: Throwable => Attempt.failure(Err(s"${t.getClass} : ${t.getMessage}"))
+    }
   }
 
   private[flumina] implicit val eqBitVector: Eq[BitVector] = Eq.fromUniversalEquals[BitVector]
@@ -31,7 +32,8 @@ package object flumina {
     kafkaOptionalString.exmap(decode, encode)
   }
 
-  private[flumina] def kafkaBool: Codec[Boolean] = int8.xmap[Boolean](x => x == 1, x => if (x) 1 else 0)
+  private[flumina] def kafkaBool: Codec[Boolean] =
+    int8.xmap[Boolean](x => x == 1, x => if (x) 1 else 0)
 
   private[flumina] val kafkaBytes: Codec[ByteVector] = new KafkaBytesCodec
 

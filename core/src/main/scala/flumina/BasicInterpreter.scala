@@ -3,7 +3,7 @@ package flumina
 import cats.data._
 import cats.implicits._
 import cats.kernel.Monoid
-import cats.{MonadError, ~>}
+import cats.{~>, MonadError}
 import flumina.messages._
 import scodec.Attempt
 import scodec.bits.{BitVector, ByteVector}
@@ -17,36 +17,50 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case Attempt.Failure(err)  => F.raiseError(new Exception(s"Fail: ${err.messageWithContext}"))
   }
 
-  private def doRequest[A](requestFactory: KafkaContext => KafkaRequest, trace: Boolean)(responseTransformer: PartialFunction[KafkaResponse, F[A]]): ReaderT[F, KafkaContext, A] = ReaderT { ctx =>
-    val req = requestFactory(ctx)
-    val decoder = decoderFor(req)
-    val apiVersion = apiVersionFor(req)
-    val apiKey = apiKeyFor(req)
+  private def doRequest[A](requestFactory: KafkaContext => KafkaRequest, trace: Boolean)(responseTransformer: PartialFunction[KafkaResponse, F[A]]): ReaderT[F, KafkaContext, A] =
+    ReaderT { ctx =>
+      val req        = requestFactory(ctx)
+      val decoder    = decoderFor(req)
+      val apiVersion = apiVersionFor(req)
+      val apiKey     = apiKeyFor(req)
 
-    for {
-      requestBits <- fromAttempt(encodeRequest(req))
-      request = KafkaConnectionRequest(apiKey = apiKey, version = apiVersion, requestPayload = requestBits, trace = trace)
-      responseBits <- requestResponse(KafkaBrokerRequest(ctx.broker, request))
-      response <- fromAttempt(decoder(responseBits))
-      result <- responseTransformer.applyOrElse(response, (resp: KafkaResponse) => F.raiseError[A](new Exception(s"Unexpected response $resp")))
-    } yield result
-  }
+      for {
+        requestBits <- fromAttempt(encodeRequest(req))
+        request = KafkaConnectionRequest(apiKey = apiKey, version = apiVersion, requestPayload = requestBits, trace = trace)
+        responseBits <- requestResponse(KafkaBrokerRequest(ctx.broker, request))
+        response     <- fromAttempt(decoder(responseBits))
+        result       <- responseTransformer.applyOrElse(response, (resp: KafkaResponse) => F.raiseError[A](new Exception(s"Unexpected response $resp")))
+      } yield result
+    }
 
   private def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]) =
-    doRequest(_ => KafkaRequest.OffsetFetch(groupId, topicPartitions.groupBy(_.topic).map { case (topic, tp) => OffsetFetchTopicRequest(topic, tp.map(_.partition).toVector) }.toVector), trace = false) {
-      case KafkaResponse.OffsetFetch(topics) => F.pure {
-        TopicPartitionValues.from {
-          for {
-            topic <- topics
-            partition <- topic.partitions
-          } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), OffsetMetadata(partition.offset, partition.metadata))
+    doRequest(
+      _ =>
+        KafkaRequest.OffsetFetch(
+          groupId,
+          topicPartitions
+            .groupBy(_.topic)
+            .map {
+              case (topic, tp) => OffsetFetchTopicRequest(topic, tp.map(_.partition).toVector)
+            }
+            .toVector),
+      trace = false
+    ) {
+      case KafkaResponse.OffsetFetch(topics) =>
+        F.pure {
+          TopicPartitionValues.from {
+            for {
+              topic     <- topics
+              partition <- topic.partitions
+            } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), OffsetMetadata(partition.offset, partition.metadata))
+          }
         }
-      }
     }
 
   private def leaveGroup(group: String, memberId: String) =
     doRequest(_ => KafkaRequest.LeaveGroup(group, memberId), trace = false) {
-      case KafkaResponse.LeaveGroup(kafkaResult) => F.pure(if (kafkaResult === KafkaResult.NoError) Right(()) else Left(kafkaResult))
+      case KafkaResponse.LeaveGroup(kafkaResult) =>
+        F.pure(if (kafkaResult === KafkaResult.NoError) Right(()) else Left(kafkaResult))
     }
 
   private def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
@@ -54,27 +68,36 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       .groupBy { case (topicPartition, _) => topicPartition }
       .map {
         case (topicPartition, offset) =>
-          OffsetCommitTopicRequest(topic = topicPartition.topic, partitions = offset.values.map(om => OffsetCommitTopicPartitionRequest(topicPartition.partition, om.offset, om.metadata)).toVector)
+          OffsetCommitTopicRequest(
+            topic = topicPartition.topic,
+            partitions = offset.values
+              .map(om => OffsetCommitTopicPartitionRequest(topicPartition.partition, om.offset, om.metadata))
+              .toVector
+          )
       }
       .toVector
 
     //TODO: set retention time
     doRequest(_ => KafkaRequest.OffsetCommit(groupId, generationId, memberId, -1, offsetTopics), trace = false) {
-      case KafkaResponse.OffsetCommit(topics) => F.pure {
-        TopicPartitionValues.from {
-          for {
-            topic <- topics
-            partition <- topic.partitions
-          } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), ())
+      case KafkaResponse.OffsetCommit(topics) =>
+        F.pure {
+          TopicPartitionValues.from {
+            for {
+              topic     <- topics
+              partition <- topic.partitions
+            } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), ())
+          }
         }
-      }
     }
   }
 
   private def listGroups =
     doRequest(_ => KafkaRequest.ListGroups, trace = false) {
       case KafkaResponse.ListGroups(kafkaResult, groups) =>
-        F.pure(if (kafkaResult === KafkaResult.NoError) Right(groups.map(g => GroupInfo(g.groupId, g.protocolType)).toList) else Left(kafkaResult))
+        F.pure(
+          if (kafkaResult === KafkaResult.NoError)
+            Right(groups.map(g => GroupInfo(g.groupId, g.protocolType)).toList)
+          else Left(kafkaResult))
     }
 
   private def syncGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) = {
@@ -122,37 +145,41 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       replicaId = -1,
       maxWaitTime = ctx.settings.fetchMaxWaitTime.toMillis.toInt,
       minBytes = 1,
-      topics =
-        topicPartitionOffsets
-          .groupBy { _.topicPartition.topic }
-          .map {
-            case (topic, tpo) =>
-              FetchTopicRequest(topic, tpo.map { m => FetchTopicPartitionRequest(m.topicPartition.partition, m.result, ctx.settings.fetchMaxBytes) }.toVector)
-          }
-          .toVector
+      topics = topicPartitionOffsets
+        .groupBy { _.topicPartition.topic }
+        .map {
+          case (topic, tpo) =>
+            FetchTopicRequest(topic, tpo.map { m =>
+              FetchTopicPartitionRequest(m.topicPartition.partition, m.result, ctx.settings.fetchMaxBytes)
+            }.toVector)
+        }
+        .toVector
     )
 
     @tailrec
-    def loop(msgs: List[Message], acc: List[OffsetValue[Record]]): List[OffsetValue[Record]] = msgs match {
-      case Message.SingleMessage(offset, _, _, key, value) :: xs =>
-        loop(xs, OffsetValue(offset, Record(key, value)) :: acc)
-      case Message.CompressedMessages(_, _, _, _, m) :: xs =>
-        loop(m.toList ++ xs, acc)
-      case Nil => acc.reverse
-    }
+    def loop(msgs: List[Message], acc: List[OffsetValue[Record]]): List[OffsetValue[Record]] =
+      msgs match {
+        case Message.SingleMessage(offset, _, _, key, value) :: xs =>
+          loop(xs, OffsetValue(offset, Record(key, value)) :: acc)
+        case Message.CompressedMessages(_, _, _, _, m) :: xs =>
+          loop(m.toList ++ xs, acc)
+        case Nil => acc.reverse
+      }
 
     doRequest(makeRequest, trace = false) {
       case KafkaResponse.Fetch(throttleTime, topics) =>
         F.pure {
           val topicPartitionValues: Seq[TopicPartitionValues[OffsetValue[Record]]] = for {
-            topic <- topics
+            topic     <- topics
             partition <- topic.partitions
           } yield {
             val topicPartition = TopicPartition(topic.topicName, partition.partition)
-            val messages = loop(partition.messages.toList, Nil)
+            val messages       = loop(partition.messages.toList, Nil)
 
-            if (partition.kafkaResult == KafkaResult.NoError) TopicPartitionValues(Nil, messages.map(o => TopicPartitionValue(topicPartition, o)))
-            else TopicPartitionValues(List(TopicPartitionValue(topicPartition, partition.kafkaResult)), List.empty[TopicPartitionValue[OffsetValue[Record]]])
+            if (partition.kafkaResult == KafkaResult.NoError)
+              TopicPartitionValues(Nil, messages.map(o => TopicPartitionValue(topicPartition, o)))
+            else
+              TopicPartitionValues(List(TopicPartitionValue(topicPartition, partition.kafkaResult)), List.empty[TopicPartitionValue[OffsetValue[Record]]])
           }
 
           Monoid.combineAll(topicPartitionValues)
@@ -164,10 +191,13 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     doRequest(_ => KafkaRequest.Metadata(topics.toVector), trace = false) {
       case u: KafkaResponse.Metadata =>
         val brokers = u.brokers.map(broker => Broker(broker.nodeId, broker.host, broker.port))
-        val topicsFailed = u.topicMetadata.filterNot(_.kafkaResult == KafkaResult.NoError).map(x => TopicResult(x.topicName, x.kafkaResult)).toSet
+        val topicsFailed = u.topicMetadata
+          .filterNot(_.kafkaResult == KafkaResult.NoError)
+          .map(x => TopicResult(x.topicName, x.kafkaResult))
+          .toSet
         val topics = for {
           validTopic <- u.topicMetadata.filter(_.kafkaResult == KafkaResult.NoError)
-          partition <- validTopic.partitions
+          partition  <- validTopic.partitions
         } yield TopicPartitionValue(TopicPartition(validTopic.topicName, partition.id), TopicInfo(partition.leader, partition.replicas, partition.isr))
 
         F.pure(
@@ -184,10 +214,11 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
   private def joinGroup(groupId: String, memberId: Option[String], protocol: String, protocols: Seq[GroupProtocol]) = {
 
     def makeGroupProtocolRequest(): F[List[JoinGroupProtocolRequest]] = {
-      def encode(data: ConsumerProtocolMetadataData) = fromAttempt(ConsumerProtocolMetadataData.codec.encode(data))
+      def encode(data: ConsumerProtocolMetadataData) =
+        fromAttempt(ConsumerProtocolMetadataData.codec.encode(data))
       val entries = for {
         protocol <- protocols
-        cp <- protocol.consumerProtocols
+        cp       <- protocol.consumerProtocols
       } yield protocol.protocolName -> ConsumerProtocolMetadataData(cp.version, cp.subscriptions.toVector, cp.userData)
 
       entries.toList.foldM(List.empty[JoinGroupProtocolRequest]) {
@@ -207,7 +238,8 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     }
 
     def extractMembers(members: Seq[JoinGroupMemberResponse]): F[List[GroupMember]] = {
-      def decode(bitVector: BitVector) = fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(bitVector))
+      def decode(bitVector: BitVector) =
+        fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(bitVector))
       members.toList.foldM(List.empty[GroupMember]) {
         case (acc, r) =>
           decode(BitVector(r.metadata)).map(data => acc :+ GroupMember(r.memberId, None, None, Some(extractConsumerProtocol(data)), None))
@@ -236,10 +268,12 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       topics = Vector(
         ProduceTopicRequest(
           msg.topicPartition.topic,
-          Vector(ProduceTopicPartitionRequest(
-            msg.topicPartition.partition,
-            Vector(Message.SingleMessage(0, MessageVersion.V0, None, msg.result.key, msg.result.value))
-          ))
+          Vector(
+            ProduceTopicPartitionRequest(
+              msg.topicPartition.partition,
+              Vector(Message
+                .SingleMessage(0, MessageVersion.V0, None, msg.result.key, msg.result.value))
+            ))
         )
       )
     )
@@ -249,7 +283,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
         F.pure {
           TopicPartitionValues.from {
             for {
-              topic <- topics
+              topic     <- topics
               partition <- topic.partitions
             } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), partition.offset)
           }
@@ -265,15 +299,26 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
         .groupBy { _.topicPartition.topic }
         .map {
           case (topic, tpvalues) =>
-            ProduceTopicRequest(topic, tpvalues.groupBy(_.topicPartition.partition).map {
-              case (partition, keyValues) =>
-                val messages = keyValues.map(m => Message.SingleMessage(0, MessageVersion.V0, None, m.result.key, m.result.value)).toVector
+            ProduceTopicRequest(
+              topic,
+              tpvalues
+                .groupBy(_.topicPartition.partition)
+                .map {
+                  case (partition, keyValues) =>
+                    val messages = keyValues
+                      .map(m =>
+                        Message
+                          .SingleMessage(0, MessageVersion.V0, None, m.result.key, m.result.value))
+                      .toVector
 
-                ProduceTopicPartitionRequest(
-                  partition,
-                  Vector(Message.CompressedMessages(0, MessageVersion.V0, compression, None, messages))
-                )
-            }.toVector)
+                    ProduceTopicPartitionRequest(
+                      partition,
+                      Vector(Message
+                        .CompressedMessages(0, MessageVersion.V0, compression, None, messages))
+                    )
+                }
+                .toVector
+            )
         }
         .toVector
     )
@@ -283,7 +328,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
         F.pure {
           TopicPartitionValues.from {
             for {
-              topic <- topics
+              topic     <- topics
               partition <- topic.partitions
             } yield (partition.kafkaResult, TopicPartition(topic.topicName, partition.partition), partition.offset)
           }
@@ -293,13 +338,17 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
 
   private def heartbeat(groupId: String, generationId: Int, memberId: String) =
     doRequest(_ => KafkaRequest.Heartbeat(groupId, generationId, memberId), trace = false) {
-      case KafkaResponse.Heartbeat(kafkaResult) => F.pure(if (kafkaResult === KafkaResult.NoError) Right(()) else Left(kafkaResult))
+      case KafkaResponse.Heartbeat(kafkaResult) =>
+        F.pure(if (kafkaResult === KafkaResult.NoError) Right(()) else Left(kafkaResult))
     }
 
   private def groupCoordinator(groupId: String) =
     doRequest(_ => KafkaRequest.GroupCoordinator(groupId), trace = false) {
       case u: KafkaResponse.GroupCoordinator =>
-        F.pure(if (u.kafkaResult === KafkaResult.NoError) Right(Broker(u.coordinatorId, u.coordinatorHost, u.coordinatorPort)) else Left(u.kafkaResult))
+        F.pure(
+          if (u.kafkaResult === KafkaResult.NoError)
+            Right(Broker(u.coordinatorId, u.coordinatorHost, u.coordinatorPort))
+          else Left(u.kafkaResult))
     }
 
   private def toTopicResult(tr: TopicResponse) =
@@ -329,27 +378,39 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
   private def apiVersions = {
     doRequest(_ => KafkaRequest.ApiVersions, trace = false) {
       case u: KafkaResponse.ApiVersions =>
-        F.pure(if (u.kafkaResult == KafkaResult.NoError) Right(u.versions.toList) else Left(u.kafkaResult))
+        F.pure(
+          if (u.kafkaResult == KafkaResult.NoError) Right(u.versions.toList)
+          else Left(u.kafkaResult))
     }
   }
 
   private def describeGroups(groupIds: Traversable[String]) = {
     doRequest(_ => KafkaRequest.DescribeGroups(groupIds.toVector), trace = false) {
       case u: KafkaResponse.DescribeGroups =>
-        def toMember(e: DescribeGroupsGroupMemberResponse): F[GroupMember] = for {
-          protocolMetadata <- if (e.memberAssignment.nonEmpty)
-            fromAttempt(MemberAssignmentData.codec.decodeValue(e.memberAssignment.toBitVector).map(extractMemberAssignment))
-              .map(Option.apply)
-          else F.pure(Option.empty[MemberAssignment])
-          assignment <- if (e.memberMetadata.nonEmpty)
-            fromAttempt(ConsumerProtocolMetadataData.codec.decodeValue(e.memberMetadata.toBitVector).map(extractConsumerProtocol))
-              .map(Option.apply)
-          else F.pure(Option.empty[ConsumerProtocol])
-        } yield GroupMember(e.memberId, Some(e.clientId), Some(e.clientHost), assignment, protocolMetadata)
+        def toMember(e: DescribeGroupsGroupMemberResponse): F[GroupMember] =
+          for {
+            protocolMetadata <- if (e.memberAssignment.nonEmpty)
+              fromAttempt(
+                MemberAssignmentData.codec
+                  .decodeValue(e.memberAssignment.toBitVector)
+                  .map(extractMemberAssignment))
+                .map(Option.apply)
+            else F.pure(Option.empty[MemberAssignment])
+            assignment <- if (e.memberMetadata.nonEmpty)
+              fromAttempt(
+                ConsumerProtocolMetadataData.codec
+                  .decodeValue(e.memberMetadata.toBitVector)
+                  .map(extractConsumerProtocol))
+                .map(Option.apply)
+            else F.pure(Option.empty[ConsumerProtocol])
+          } yield GroupMember(e.memberId, Some(e.clientId), Some(e.clientHost), assignment, protocolMetadata)
 
-        def toGroup(entry: DescribeGroupsGroupResponse): F[Group] = for {
-          members <- entry.members.foldM[F, Seq[GroupMember]](Seq.empty) { case (acc, e) => toMember(e).map(q => acc :+ q) }
-        } yield Group(entry.kafkaResult, entry.groupId, entry.state, entry.protocolType, entry.protocol, members)
+        def toGroup(entry: DescribeGroupsGroupResponse): F[Group] =
+          for {
+            members <- entry.members.foldM[F, Seq[GroupMember]](Seq.empty) {
+              case (acc, e) => toMember(e).map(q => acc :+ q)
+            }
+          } yield Group(entry.kafkaResult, entry.groupId, entry.state, entry.protocolType, entry.protocol, members)
 
         u.groups.foldM[F, Seq[Group]](Seq.empty) { case (acc, e) => toGroup(e).map(q => acc :+ q) }
     }
@@ -358,7 +419,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
   private def extractMemberAssignment(data: MemberAssignmentData) = {
     def extractMemberAssignmentTopicPartition(memberAssignmentTopicPartitions: Seq[MemberAssignmentTopicPartitionData]) = {
       for {
-        matp <- memberAssignmentTopicPartitions
+        matp      <- memberAssignmentTopicPartitions
         partition <- matp.partitions
       } yield TopicPartition(matp.topicName, partition)
     }
@@ -366,9 +427,8 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     MemberAssignment(data.version, extractMemberAssignmentTopicPartition(data.topicPartitions), data.userData)
   }
 
-  private def extractConsumerProtocol(data: ConsumerProtocolMetadataData) = {
+  private def extractConsumerProtocol(data: ConsumerProtocolMetadataData) =
     ConsumerProtocol(data.version, data.subscriptions, data.userData)
-  }
 
   private def apiVersionFor(request: KafkaRequest): Int = request match {
     case _: KafkaRequest.Produce      => 1
@@ -397,23 +457,24 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
     case _: KafkaRequest.DeleteTopic      => 20
   }
 
-  private def decoderFor(request: KafkaRequest): BitVector => Attempt[KafkaResponse] = request match {
-    case _: KafkaRequest.Produce          => KafkaResponse.produce.decodeValue
-    case _: KafkaRequest.Fetch            => KafkaResponse.fetch.decodeValue
-    case _: KafkaRequest.Metadata         => KafkaResponse.metaData.decodeValue
-    case _: KafkaRequest.OffsetCommit     => KafkaResponse.offsetCommit.decodeValue
-    case _: KafkaRequest.OffsetFetch      => KafkaResponse.offsetFetch.decodeValue
-    case _: KafkaRequest.GroupCoordinator => KafkaResponse.groupCoordinator.decodeValue
-    case _: KafkaRequest.JoinGroup        => KafkaResponse.joinGroup.decodeValue
-    case _: KafkaRequest.Heartbeat        => KafkaResponse.heartbeat.decodeValue
-    case _: KafkaRequest.LeaveGroup       => KafkaResponse.leaveGroup.decodeValue
-    case _: KafkaRequest.SyncGroup        => KafkaResponse.syncGroup.decodeValue
-    case _: KafkaRequest.DescribeGroups   => KafkaResponse.describeGroups.decodeValue
-    case KafkaRequest.ListGroups          => KafkaResponse.listGroups.decodeValue
-    case KafkaRequest.ApiVersions         => KafkaResponse.apiVersions.decodeValue
-    case _: KafkaRequest.CreateTopic      => KafkaResponse.createTopic.decodeValue
-    case _: KafkaRequest.DeleteTopic      => KafkaResponse.deleteTopic.decodeValue
-  }
+  private def decoderFor(request: KafkaRequest): BitVector => Attempt[KafkaResponse] =
+    request match {
+      case _: KafkaRequest.Produce          => KafkaResponse.produce.decodeValue
+      case _: KafkaRequest.Fetch            => KafkaResponse.fetch.decodeValue
+      case _: KafkaRequest.Metadata         => KafkaResponse.metaData.decodeValue
+      case _: KafkaRequest.OffsetCommit     => KafkaResponse.offsetCommit.decodeValue
+      case _: KafkaRequest.OffsetFetch      => KafkaResponse.offsetFetch.decodeValue
+      case _: KafkaRequest.GroupCoordinator => KafkaResponse.groupCoordinator.decodeValue
+      case _: KafkaRequest.JoinGroup        => KafkaResponse.joinGroup.decodeValue
+      case _: KafkaRequest.Heartbeat        => KafkaResponse.heartbeat.decodeValue
+      case _: KafkaRequest.LeaveGroup       => KafkaResponse.leaveGroup.decodeValue
+      case _: KafkaRequest.SyncGroup        => KafkaResponse.syncGroup.decodeValue
+      case _: KafkaRequest.DescribeGroups   => KafkaResponse.describeGroups.decodeValue
+      case KafkaRequest.ListGroups          => KafkaResponse.listGroups.decodeValue
+      case KafkaRequest.ApiVersions         => KafkaResponse.apiVersions.decodeValue
+      case _: KafkaRequest.CreateTopic      => KafkaResponse.createTopic.decodeValue
+      case _: KafkaRequest.DeleteTopic      => KafkaResponse.deleteTopic.decodeValue
+    }
 
   private def encodeRequest(request: KafkaRequest): Attempt[BitVector] = request match {
     case x: KafkaRequest.Produce          => KafkaRequest.produce.encode(x)
@@ -434,21 +495,25 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
   }
 
   override def apply[A](fa: KafkaA[A]): ReaderT[F, KafkaContext, A] = fa match {
-    case KafkaA.ListGroups                                                     => listGroups
-    case KafkaA.OffsetsFetch(groupId, values)                                  => offsetFetch(groupId, values)
-    case KafkaA.OffsetsCommit(groupId, generationId, memberId, offsets)        => offsetCommit(groupId, generationId, memberId, offsets)
-    case KafkaA.ProduceN(compression, values)                                  => produceN(compression, values)
-    case KafkaA.ProduceOne(values)                                             => produceOne(values)
-    case KafkaA.JoinGroup(groupId, memberId, protocol, protocols)              => joinGroup(groupId, memberId, protocol, protocols)
-    case KafkaA.SynchronizeGroup(groupId, generationId, memberId, assignments) => syncGroup(groupId, generationId, memberId, assignments)
-    case KafkaA.Heartbeat(groupId, generationId, memberId)                     => heartbeat(groupId, generationId, memberId)
-    case KafkaA.Fetch(values)                                                  => fetch(values)
-    case KafkaA.LeaveGroup(groupId, memberId)                                  => leaveGroup(groupId, memberId)
-    case KafkaA.GroupCoordinator(groupId)                                      => groupCoordinator(groupId)
-    case KafkaA.GetMetadata(topics)                                            => metadata(topics)
-    case KafkaA.CreateTopics(topics)                                           => createTopics(topics)
-    case KafkaA.DeleteTopics(topics)                                           => deleteTopics(topics)
-    case KafkaA.DescribeGroups(groupIds)                                       => describeGroups(groupIds)
-    case KafkaA.ApiVersions                                                    => apiVersions
+    case KafkaA.ListGroups                    => listGroups
+    case KafkaA.OffsetsFetch(groupId, values) => offsetFetch(groupId, values)
+    case KafkaA.OffsetsCommit(groupId, generationId, memberId, offsets) =>
+      offsetCommit(groupId, generationId, memberId, offsets)
+    case KafkaA.ProduceN(compression, values) => produceN(compression, values)
+    case KafkaA.ProduceOne(values)            => produceOne(values)
+    case KafkaA.JoinGroup(groupId, memberId, protocol, protocols) =>
+      joinGroup(groupId, memberId, protocol, protocols)
+    case KafkaA.SynchronizeGroup(groupId, generationId, memberId, assignments) =>
+      syncGroup(groupId, generationId, memberId, assignments)
+    case KafkaA.Heartbeat(groupId, generationId, memberId) =>
+      heartbeat(groupId, generationId, memberId)
+    case KafkaA.Fetch(values)                 => fetch(values)
+    case KafkaA.LeaveGroup(groupId, memberId) => leaveGroup(groupId, memberId)
+    case KafkaA.GroupCoordinator(groupId)     => groupCoordinator(groupId)
+    case KafkaA.GetMetadata(topics)           => metadata(topics)
+    case KafkaA.CreateTopics(topics)          => createTopics(topics)
+    case KafkaA.DeleteTopics(topics)          => deleteTopics(topics)
+    case KafkaA.DescribeGroups(groupIds)      => describeGroups(groupIds)
+    case KafkaA.ApiVersions                   => apiVersions
   }
 }

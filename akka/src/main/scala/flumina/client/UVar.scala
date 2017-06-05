@@ -41,15 +41,17 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
     private def active(current: Map[K, Option[V]], subscriptions: List[Subscription]): Receive = {
 
       case UpdateSubset(keys, updater) =>
-
         val nonExisting = nonExistingKeys(subscriptions, keys)
-        val existing = keys -- nonExisting
-        val map = nonExisting.map(k => k -> (Cell.Pending: Cell[V])) ++ existing.map(k => k -> (Cell.Empty: Cell[V]))
+        val existing    = keys -- nonExisting
+        val map         = nonExisting.map(k => k -> (Cell.Pending: Cell[V])) ++ existing.map(k => k -> (Cell.Empty: Cell[V]))
 
         if (nonExisting.nonEmpty) {
           updater(nonExisting)
             .map(kvs => UpdatedSubset(kvs.map { case (k, v) => k -> Cell.Success(v) }))
-            .recoverWith { case NonFatal(ex) => Future.successful(UpdatedSubset(keys.map(_ -> Cell.Failed(ex)).toSeq)) } pipeTo self
+            .recoverWith {
+              case NonFatal(ex) =>
+                Future.successful(UpdatedSubset(keys.map(_ -> Cell.Failed(ex)).toSeq))
+            } pipeTo self
         }
 
         val newCurrent = nonExisting.foldLeft(current) { case (acc, k) => acc.updated(k, None) }
@@ -62,33 +64,41 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
         if (nonExisting.nonEmpty) {
           orElse(nonExisting)
             .map(kvs => UpdatedSubset(kvs.map { case (k, v) => k -> Cell.Success(v) }))
-            .recoverWith { case NonFatal(ex) => Future.successful(UpdatedSubset(keys.map(_ -> Cell.Failed(ex)).toSeq)) } pipeTo self
+            .recoverWith {
+              case NonFatal(ex) =>
+                Future.successful(UpdatedSubset(keys.map(_ -> Cell.Failed(ex)).toSeq))
+            } pipeTo self
 
           val existing = keys -- nonExisting
-          val existingMap = existing.flatMap(k => current.get(k).toList.map(v => k -> v.fold[Cell[V]](Cell.Pending)(_ => Cell.Empty))).toMap
+          val existingMap = existing
+            .flatMap(k => current.get(k).toList.map(v => k -> v.fold[Cell[V]](Cell.Pending)(_ => Cell.Empty)))
+            .toMap
           val nonExistingMap = nonExisting.map(_ -> (Cell.Pending: Cell[V])).toMap
-          val map = existingMap ++ nonExistingMap
-          val newCurrent = nonExisting.foldLeft(current) { case (acc, k) => acc.updated(k, None) }
+          val map            = existingMap ++ nonExistingMap
+          val newCurrent     = nonExisting.foldLeft(current) { case (acc, k) => acc.updated(k, None) }
 
           context.become(active(newCurrent, subscriptions :+ Subscription(map, sender())))
         } else {
           sender() ! currentMap(current.filterKeys(keys))
         }
 
-      case GetOrElseSingle(key, orElse) => current.get(key) match {
-        case Some(v) => v.foreach(value => sender() ! Map(key -> value))
-        case None =>
-          val nk = nonExistingKeys(subscriptions, Set(key))
-          if (nk.nonEmpty) {
-            orElse(key)
-              .map(v => UpdatedSubset(Seq(key -> Cell.Success(v))))
-              .recoverWith { case NonFatal(ex) => Future.successful(UpdatedSubset(Seq(key -> Cell.Failed(ex)))) } pipeTo self
-          }
-          context.become(active(current, subscriptions :+ Subscription(Map(key -> Cell.Pending), sender())))
-      }
+      case GetOrElseSingle(key, orElse) =>
+        current.get(key) match {
+          case Some(v) => v.foreach(value => sender() ! Map(key -> value))
+          case None =>
+            val nk = nonExistingKeys(subscriptions, Set(key))
+            if (nk.nonEmpty) {
+              orElse(key)
+                .map(v => UpdatedSubset(Seq(key -> Cell.Success(v))))
+                .recoverWith {
+                  case NonFatal(ex) =>
+                    Future.successful(UpdatedSubset(Seq(key -> Cell.Failed(ex))))
+                } pipeTo self
+            }
+            context.become(active(current, subscriptions :+ Subscription(Map(key -> Cell.Pending), sender())))
+        }
 
       case UpdatedSubset(updates) =>
-
         val currentMap = current.mapValues(_.fold[Cell[V]](Cell.Empty)(x => Cell.Success(Some(x))))
         val newCellMap = updates.foldLeft(currentMap) {
           case (acc, (key, value)) =>
@@ -99,7 +109,7 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
         newSubscriptions.filter(_.isComplete).foreach(x => x.subscriber ! x.subset)
 
         val prunedSubscriptions = newSubscriptions.filterNot(_.isComplete)
-        val newMap = newCellMap.mapValues(Cell.toOption)
+        val newMap              = newCellMap.mapValues(Cell.toOption)
 
         context.become(active(newMap, prunedSubscriptions))
 
@@ -134,11 +144,12 @@ object MapVar {
     new MapVar(initial, update)
 
   object updates {
-    def appendAndOmit[K, V](current: Map[K, Cell[V]], key: K, value: Cell[V]): Map[K, Cell[V]] = value match {
-      case Cell.Success(v)           => current.updated(key, Cell.Success(v))
-      case Cell.Failed(ex)           => current.updated(key, Cell.Failed(ex))
-      case Cell.Pending | Cell.Empty => current
-    }
+    def appendAndOmit[K, V](current: Map[K, Cell[V]], key: K, value: Cell[V]): Map[K, Cell[V]] =
+      value match {
+        case Cell.Success(v)           => current.updated(key, Cell.Success(v))
+        case Cell.Failed(ex)           => current.updated(key, Cell.Failed(ex))
+        case Cell.Pending | Cell.Empty => current
+      }
   }
 }
 
@@ -170,20 +181,21 @@ final class UVar[A: ClassTag] private (initial: A)(implicit S: ActorSystem, T: T
 
   private val actorRef = S.actorOf(Props(new Handler))
 
-  def get: Future[A] = actorRef.ask(Get).mapTo[A]
+  def get: Future[A]                       = actorRef.ask(Get).mapTo[A]
   def update(f: A => Future[A]): Future[A] = actorRef.ask(Update(f)).mapTo[A]
 }
 
 object UVar {
-  def apply[A: ClassTag](initial: A)(implicit S: ActorSystem, T: Timeout): UVar[A] = new UVar(initial)
+  def apply[A: ClassTag](initial: A)(implicit S: ActorSystem, T: Timeout): UVar[A] =
+    new UVar(initial)
 }
 
 sealed trait Cell[+A]
 
 object Cell {
-  case object Empty extends Cell[Nothing]
-  case object Pending extends Cell[Nothing]
-  final case class Failed(err: Throwable) extends Cell[Nothing]
+  case object Empty                             extends Cell[Nothing]
+  case object Pending                           extends Cell[Nothing]
+  final case class Failed(err: Throwable)       extends Cell[Nothing]
   final case class Success[A](value: Option[A]) extends Cell[A]
 
   def toOption[A](cell: Cell[A]): Option[A] = cell match {

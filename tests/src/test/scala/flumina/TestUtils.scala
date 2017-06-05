@@ -1,6 +1,6 @@
 package flumina
 
-import org.scalatest.matchers.{ MatchResult, Matcher }
+import org.scalatest.matchers.{MatchResult, Matcher}
 
 import scala.annotation.tailrec
 
@@ -10,7 +10,9 @@ object TestUtils {
     override def apply(left: Seq[A]): MatchResult = {
       @tailrec
       def loop(list: List[A]): MatchResult = list match {
-        case first :: second :: tail => if (f(first) < f(second)) loop(second :: tail) else MatchResult(false, s"$first is not less $second", s"$first is less $second")
+        case first :: second :: tail =>
+          if (f(first) < f(second)) loop(second :: tail)
+          else MatchResult(false, s"$first is not less $second", s"$first is less $second")
         case _ => MatchResult(matches = true, "", "")
       }
       loop(left.toList)

@@ -4,7 +4,7 @@ import java.util.Date
 
 import flumina._
 import cats.implicits._
-import scodec.bits.{BitVector, ByteVector, crc}
+import scodec.bits.{crc, BitVector, ByteVector}
 import scodec.codecs._
 import scodec.{Attempt, Codec, DecodeResult, Encoder, Err, SizeBound}
 import shapeless._
@@ -18,25 +18,25 @@ sealed trait TimeData {
 
 object TimeData {
   final case class LogAppendTime(time: Date) extends TimeData
-  final case class CreateTime(time: Date) extends TimeData
+  final case class CreateTime(time: Date)    extends TimeData
 }
 
 object Message {
 
   final case class SingleMessage(
-    offset:    Long,
-    version:   MessageVersion,
-    timeStamp: Option[TimeData],
-    key:       ByteVector,
-    value:     ByteVector
+      offset: Long,
+      version: MessageVersion,
+      timeStamp: Option[TimeData],
+      key: ByteVector,
+      value: ByteVector
   ) extends Message
 
   final case class CompressedMessages(
-    offset:      Long,
-    version:     MessageVersion,
-    compression: Compression,
-    timeStamp:   Option[TimeData],
-    messages:    Vector[Message]
+      offset: Long,
+      version: MessageVersion,
+      compression: Compression,
+      timeStamp: Option[TimeData],
+      messages: Vector[Message]
   ) extends Message
 
 }
@@ -79,10 +79,11 @@ object MessageSetCodec {
     val entry: Codec[Message] =
       "Message Entry" | (
         ("Offset" | int64) ~
-        variableSizeBytes("Message Size" | int32, impl.messageCodec)
+          variableSizeBytes("Message Size" | int32, impl.messageCodec)
       ).xmap(
-          { case (offset, msg) => msg.updateOffset(offset) }, msg => (msg.offset, msg)
-        )
+        { case (offset, msg) => msg.updateOffset(offset) },
+        msg => (msg.offset, msg)
+      )
 
     new KafkaPartialVectorCodec(entry)
   }
@@ -105,23 +106,32 @@ object MessageSetCodec {
 
     val timeCodec: Codec[Option[Date]] = {
       int64.xmap(
-        { t => if (t < 0) None else Some(new Date(t)) }, {
+        { t =>
+          if (t < 0) None else Some(new Date(t))
+        }, {
           _.map(_.getTime).getOrElse(-1l)
         }
       )
     }
 
     def decodeMessage(
-      version: MessageVersion, compression: Option[Compression], timeFlag: Boolean, time: Option[Date], k: ByteVector, v: ByteVector
+        version: MessageVersion,
+        compression: Option[Compression],
+        timeFlag: Boolean,
+        time: Option[Date],
+        k: ByteVector,
+        v: ByteVector
     ): Attempt[Message] = {
-      val timeData: Option[TimeData] = time.map {
-        t => if (timeFlag) TimeData.LogAppendTime(t) else TimeData.CreateTime(t)
+      val timeData: Option[TimeData] = time.map { t =>
+        if (timeFlag) TimeData.LogAppendTime(t) else TimeData.CreateTime(t)
       }
 
       def decodeCompressed(compression: Compression)(content: ByteVector): Attempt[Message] = {
         messageSetCodec.decode(content.bits).flatMap { result =>
-          if (result.remainder.nonEmpty) Attempt.failure(Err(s"Nonepmty remainder when decoding compressed messgaes : ${result.remainder}"))
-          else Attempt.successful(Message.CompressedMessages(0, version, compression, timeData, result.value))
+          if (result.remainder.nonEmpty)
+            Attempt.failure(Err(s"Nonepmty remainder when decoding compressed messgaes : ${result.remainder}"))
+          else
+            Attempt.successful(Message.CompressedMessages(0, version, compression, timeData, result.value))
         }
       }
 
@@ -130,9 +140,11 @@ object MessageSetCodec {
 
         case Some(compressionType) =>
           compressionType match {
-            case Compression.GZIP   => GZipCompression.inflate(v) flatMap decodeCompressed(Compression.GZIP)
-            case Compression.Snappy => SnappyCompression.inflate(v) flatMap decodeCompressed(Compression.Snappy)
-            case _                  => sys.error("Impossible?")
+            case Compression.GZIP =>
+              GZipCompression.inflate(v) flatMap decodeCompressed(Compression.GZIP)
+            case Compression.Snappy =>
+              SnappyCompression.inflate(v) flatMap decodeCompressed(Compression.Snappy)
+            case _ => sys.error("Impossible?")
           }
       }
     }
@@ -149,10 +161,11 @@ object MessageSetCodec {
       }
 
       msg match {
-        case sm: Message.SingleMessage => attempt {
-          val (timeFlag, time) = mkTime(sm.timeStamp)
-          () :: timeFlag :: None :: time :: sm.key :: sm.value :: HNil
-        }
+        case sm: Message.SingleMessage =>
+          attempt {
+            val (timeFlag, time) = mkTime(sm.timeStamp)
+            () :: timeFlag :: None :: time :: sm.key :: sm.value :: HNil
+          }
 
         case cm: Message.CompressedMessages =>
           def encodeCompressed(messages: Vector[Message]): Attempt[ByteVector] =
@@ -160,9 +173,11 @@ object MessageSetCodec {
 
           val value =
             cm.compression match {
-              case Compression.GZIP   => encodeCompressed(cm.messages).flatMap(GZipCompression.deflate)
-              case Compression.Snappy => encodeCompressed(cm.messages).flatMap(SnappyCompression.deflate)
-              case _                  => sys.error("Impossible?")
+              case Compression.GZIP =>
+                encodeCompressed(cm.messages).flatMap(GZipCompression.deflate)
+              case Compression.Snappy =>
+                encodeCompressed(cm.messages).flatMap(SnappyCompression.deflate)
+              case _ => sys.error("Impossible?")
             }
 
           val (timeFlag, time) = mkTime(cm.timeStamp)
@@ -176,11 +191,13 @@ object MessageSetCodec {
 
     val messageCodec: Codec[Message] = {
       "Message" | crcChecksum(
-        ("MagicByte" | byte).flatZip {
-          case MagicByteV0 => v0Codec
-          case MagicByteV1 => v1Codec
-          case other       => fail[Message](Err(s"Unexpected message magic: $other"))
-        }.xmap(_._2, m => magicOf(m) -> m)
+        ("MagicByte" | byte)
+          .flatZip {
+            case MagicByteV0 => v0Codec
+            case MagicByteV1 => v1Codec
+            case other       => fail[Message](Err(s"Unexpected message magic: $other"))
+          }
+          .xmap(_._2, m => magicOf(m) -> m)
       )
     }
 
@@ -188,18 +205,19 @@ object MessageSetCodec {
 
       "V0" | (
         ("Ignored Attribute" | ignore(5)) ::
-        ("Compression" | compressionAttribute) ::
-        ("Key" | variableSizeBytes(int32, bytes)) ::
-        ("Value" | variableSizeBytes(int32, bytes))
+          ("Compression" | compressionAttribute) ::
+          ("Key" | variableSizeBytes(int32, bytes)) ::
+          ("Value" | variableSizeBytes(int32, bytes))
       ).exmap(
-          {
-            case _ :: compression :: k :: v :: HNil =>
-              decodeMessage(MessageVersion.V0, compression, false, None, k, v)
-          }, (encodeMessage _).andThen(_.map {
-            case _ :: timeFlag :: compression :: time :: k :: v :: HNil =>
-              () :: compression :: k :: v :: HNil
-          })
-        )
+        {
+          case _ :: compression :: k :: v :: HNil =>
+            decodeMessage(MessageVersion.V0, compression, false, None, k, v)
+        },
+        (encodeMessage _).andThen(_.map {
+          case _ :: timeFlag :: compression :: time :: k :: v :: HNil =>
+            () :: compression :: k :: v :: HNil
+        })
+      )
 
     }
 
@@ -207,17 +225,18 @@ object MessageSetCodec {
 
       "V1" | (
         ("Ignored Attribute" | ignore(4)) ::
-        ("Time flag" | kafkaBool) ::
-        ("Compression" | compressionAttribute) ::
-        ("Time" | timeCodec) ::
-        ("Key" | variableSizeBytes(int32, bytes)) ::
-        ("Value" | variableSizeBytes(int32, bytes))
+          ("Time flag" | kafkaBool) ::
+          ("Compression" | compressionAttribute) ::
+          ("Time" | timeCodec) ::
+          ("Key" | variableSizeBytes(int32, bytes)) ::
+          ("Value" | variableSizeBytes(int32, bytes))
       ).exmap(
-          {
-            case _ :: timeFlag :: compression :: time :: k :: v :: HNil =>
-              decodeMessage(MessageVersion.V1, compression, timeFlag, time, k, v)
-          }, encodeMessage
-        )
+        {
+          case _ :: timeFlag :: compression :: time :: k :: v :: HNil =>
+            decodeMessage(MessageVersion.V1, compression, timeFlag, time, k, v)
+        },
+        encodeMessage
+      )
 
     }
 

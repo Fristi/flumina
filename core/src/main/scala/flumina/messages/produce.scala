@@ -22,7 +22,8 @@ object ProduceTopicRequest {
 
 object ProduceTopicPartitionResponse {
   val codec: Codec[ProduceTopicPartitionResponse] =
-    (("partition" | int32) :: ("kafkaResult" | KafkaResult.codec) :: ("offset" | int64)).as[ProduceTopicPartitionResponse]
+    (("partition" | int32) :: ("kafkaResult" | KafkaResult.codec) :: ("offset" | int64))
+      .as[ProduceTopicPartitionResponse]
 }
 
 object ProduceTopicResponse {

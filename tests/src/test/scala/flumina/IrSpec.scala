@@ -3,11 +3,11 @@ package flumina
 import cats.Eq
 import cats.instances.all._
 import cats.kernel.laws.GroupLaws
-import cats.laws.discipline.{ ContravariantTests, FunctorTests, InvariantTests, TraverseTests }
+import cats.laws.discipline.{ContravariantTests, FunctorTests, InvariantTests, TraverseTests}
 import cats.laws.discipline.arbitrary._
 import cats.laws.discipline.eq._
 import flumina._
-import org.scalacheck.{ Arbitrary, Gen }
+import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
 import org.typelevel.discipline.scalatest.Discipline
 import org.scalacheck.Shapeless._
@@ -38,8 +38,8 @@ class IrSpec extends FunSuite with Discipline {
   implicit def eqAttempt[A](implicit E: Eq[A]): Eq[Attempt[A]] =
     Eq.instance {
       case (Attempt.Successful(a), Attempt.Successful(b)) => E.eqv(a, b)
-      case (Attempt.Failure(a), Attempt.Failure(b)) => Eq.fromUniversalEquals.eqv(a, b)
-      case _ => false
+      case (Attempt.Failure(a), Attempt.Failure(b))       => Eq.fromUniversalEquals.eqv(a, b)
+      case _                                              => false
     }
 
   implicit def eqKafkaPartitioner[A](implicit A: Arbitrary[A], E: Eq[Int]): Eq[KafkaPartitioner[A]] =

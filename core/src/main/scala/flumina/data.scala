@@ -17,7 +17,7 @@ object Compression {
     case _ => Attempt.failure(Err("Compression not recognized"))
   }
 
-  case object GZIP extends Compression(1)
+  case object GZIP   extends Compression(1)
   case object Snappy extends Compression(2)
 }
 
@@ -31,11 +31,11 @@ object MessageVersion {
 final case class ReplicationAssignment(partitionId: Int, replicas: Seq[Int])
 
 final case class TopicDescriptor(
-  topic:             String,
-  nrPartitions:      Option[Int],
-  replicationFactor: Option[Int],
-  replicaAssignment: Seq[ReplicationAssignment],
-  config:            Map[String, String]
+    topic: String,
+    nrPartitions: Option[Int],
+    replicationFactor: Option[Int],
+    replicaAssignment: Seq[ReplicationAssignment],
+    config: Map[String, String]
 )
 
 final case class Record(key: ByteVector, value: ByteVector)
@@ -62,10 +62,12 @@ object OffsetValue {
 final case class TopicPartition(topic: String, partition: Int)
 
 object TopicPartition {
-  def enumerate(name: String, nrPartitions: Int): Set[TopicPartition] = (0 until nrPartitions).map(x => TopicPartition(name, x)).toSet
+  def enumerate(name: String, nrPartitions: Int): Set[TopicPartition] =
+    (0 until nrPartitions).map(x => TopicPartition(name, x)).toSet
 
   implicit val eqTopicPartition: Eq[TopicPartition] = new Eq[TopicPartition] {
-    override def eqv(x: TopicPartition, y: TopicPartition): Boolean = x.topic === y.topic && x.partition === y.partition
+    override def eqv(x: TopicPartition, y: TopicPartition): Boolean =
+      x.topic === y.topic && x.partition === y.partition
   }
 }
 
@@ -82,18 +84,18 @@ final case class TopicInfo(leader: Int, replicas: Seq[Int], isr: Seq[Int])
 final case class TopicResult(topic: String, kafkaResult: KafkaResult)
 
 final case class Metadata(
-  brokers:       Set[Broker],
-  controller:    Broker,
-  topics:        Set[TopicPartitionValue[TopicInfo]],
-  topicsInError: Set[TopicResult]
+    brokers: Set[Broker],
+    controller: Broker,
+    topics: Set[TopicPartitionValue[TopicInfo]],
+    topicsInError: Set[TopicResult]
 )
 
 final case class GroupMember(
-  memberId:         String,
-  clientId:         Option[String],
-  clientHost:       Option[String],
-  consumerProtocol: Option[ConsumerProtocol],
-  assignment:       Option[MemberAssignment]
+    memberId: String,
+    clientId: Option[String],
+    clientHost: Option[String],
+    consumerProtocol: Option[ConsumerProtocol],
+    assignment: Option[MemberAssignment]
 )
 
 final case class GroupProtocol(protocolName: String, consumerProtocols: Seq[ConsumerProtocol])
@@ -101,12 +103,12 @@ final case class GroupProtocol(protocolName: String, consumerProtocols: Seq[Cons
 final case class JoinGroupResult(generationId: Int, groupProtocol: String, leaderId: String, memberId: String, members: Seq[GroupMember])
 
 final case class Group(
-  kafkaResult:  KafkaResult,
-  groupId:      String,
-  state:        String,
-  protocolType: String,
-  protocol:     String,
-  members:      Seq[GroupMember]
+    kafkaResult: KafkaResult,
+    groupId: String,
+    state: String,
+    protocolType: String,
+    protocol: String,
+    members: Seq[GroupMember]
 )
 
 final case class GroupAssignment(memberId: String, memberAssignment: MemberAssignment)
@@ -118,23 +120,28 @@ final case class ConsumerProtocol(version: Int, subscriptions: Seq[String], user
 final case class TopicPartitionValue[T](topicPartition: TopicPartition, result: T)
 
 object TopicPartitionValue {
-  implicit def eqTopicPartitionValue[A](implicit E: Eq[A]): Eq[TopicPartitionValue[A]] = new Eq[TopicPartitionValue[A]] {
-    override def eqv(x: TopicPartitionValue[A], y: TopicPartitionValue[A]): Boolean = Eq[TopicPartition].eqv(x.topicPartition, y.topicPartition) && E.eqv(x.result, y.result)
-  }
+  implicit def eqTopicPartitionValue[A](implicit E: Eq[A]): Eq[TopicPartitionValue[A]] =
+    new Eq[TopicPartitionValue[A]] {
+      override def eqv(x: TopicPartitionValue[A], y: TopicPartitionValue[A]): Boolean =
+        Eq[TopicPartition].eqv(x.topicPartition, y.topicPartition) && E.eqv(x.result, y.result)
+    }
 
-  implicit val traverseTopicPartitionValue: Traverse[TopicPartitionValue] = new Traverse[TopicPartitionValue] {
-    override def traverse[G[_], A, B](fa: TopicPartitionValue[A])(f: (A) => G[B])(implicit A: Applicative[G]): G[TopicPartitionValue[B]] =
-      A.map(f(fa.result))(y => TopicPartitionValue(fa.topicPartition, y))
+  implicit val traverseTopicPartitionValue: Traverse[TopicPartitionValue] =
+    new Traverse[TopicPartitionValue] {
+      override def traverse[G[_], A, B](fa: TopicPartitionValue[A])(f: (A) => G[B])(implicit A: Applicative[G]): G[TopicPartitionValue[B]] =
+        A.map(f(fa.result))(y => TopicPartitionValue(fa.topicPartition, y))
 
-    override def foldLeft[A, B](fa: TopicPartitionValue[A], b: B)(f: (B, A) => B): B = f(b, fa.result)
+      override def foldLeft[A, B](fa: TopicPartitionValue[A], b: B)(f: (B, A) => B): B =
+        f(b, fa.result)
 
-    override def foldRight[A, B](fa: TopicPartitionValue[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = f(fa.result, lb)
-  }
+      override def foldRight[A, B](fa: TopicPartitionValue[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = f(fa.result, lb)
+    }
 }
 
 final case class TopicPartitionValues[T](errors: List[TopicPartitionValue[KafkaResult]], success: List[TopicPartitionValue[T]]) {
 
-  lazy val canBeRetried: Set[TopicPartition] = errors.filter(x => KafkaResult.canRetry(x.result)).map(_.topicPartition).toSet
+  lazy val canBeRetried: Set[TopicPartition] =
+    errors.filter(x => KafkaResult.canRetry(x.result)).map(_.topicPartition).toSet
 
   def resultsExceptWhichCanBeRetried: TopicPartitionValues[T] =
     TopicPartitionValues(errors.filterNot(x => KafkaResult.canRetry(x.result)), success)
@@ -144,25 +151,32 @@ object TopicPartitionValues {
   def zero[A]: TopicPartitionValues[A] =
     TopicPartitionValues(List.empty, List.empty[TopicPartitionValue[A]])
 
-  implicit def monoidTopicPartitionValues[A]: Monoid[TopicPartitionValues[A]] = new Monoid[TopicPartitionValues[A]] {
-    def empty: TopicPartitionValues[A] = zero[A]
-    def combine(x: TopicPartitionValues[A], y: TopicPartitionValues[A]): TopicPartitionValues[A] =
-      TopicPartitionValues(x.errors ++ y.errors, x.success ++ y.success)
-  }
+  implicit def monoidTopicPartitionValues[A]: Monoid[TopicPartitionValues[A]] =
+    new Monoid[TopicPartitionValues[A]] {
+      def empty: TopicPartitionValues[A] = zero[A]
+      def combine(x: TopicPartitionValues[A], y: TopicPartitionValues[A]): TopicPartitionValues[A] =
+        TopicPartitionValues(x.errors ++ y.errors, x.success ++ y.success)
+    }
 
-  implicit def eqTopicPartitionValues[A](implicit E: Eq[TopicPartitionValue[A]]): Eq[TopicPartitionValues[A]] = new Eq[TopicPartitionValues[A]] {
-    override def eqv(x: TopicPartitionValues[A], y: TopicPartitionValues[A]): Boolean = (x.success corresponds y.success)(E.eqv)
-  }
+  implicit def eqTopicPartitionValues[A](implicit E: Eq[TopicPartitionValue[A]]): Eq[TopicPartitionValues[A]] =
+    new Eq[TopicPartitionValues[A]] {
+      override def eqv(x: TopicPartitionValues[A], y: TopicPartitionValues[A]): Boolean =
+        (x.success corresponds y.success)(E.eqv)
+    }
 
-  implicit val traverseTopicPartitionValues: Traverse[TopicPartitionValues] = new Traverse[TopicPartitionValues] {
+  implicit val traverseTopicPartitionValues: Traverse[TopicPartitionValues] =
+    new Traverse[TopicPartitionValues] {
 
-    override def traverse[G[_], A, B](fa: TopicPartitionValues[A])(f: (A) => G[B])(implicit A: Applicative[G]): G[TopicPartitionValues[B]] =
-      A.map(fa.success.traverse(x => A.map(f(x.result))(y => TopicPartitionValue(x.topicPartition, y))))(res => TopicPartitionValues(fa.errors, res))
+      override def traverse[G[_], A, B](fa: TopicPartitionValues[A])(f: (A) => G[B])(implicit A: Applicative[G]): G[TopicPartitionValues[B]] =
+        A.map(fa.success.traverse(x => A.map(f(x.result))(y => TopicPartitionValue(x.topicPartition, y))))(res => TopicPartitionValues(fa.errors, res))
 
-    override def foldLeft[A, B](fa: TopicPartitionValues[A], b: B)(f: (B, A) => B): B = fa.success.foldLeft(b) { case (acc, e) => f(acc, e.result) }
+      override def foldLeft[A, B](fa: TopicPartitionValues[A], b: B)(f: (B, A) => B): B =
+        fa.success.foldLeft(b) { case (acc, e) => f(acc, e.result) }
 
-    override def foldRight[A, B](fa: TopicPartitionValues[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = Traverse[List].foldRight(fa.success, lb) { case (acc, e) => f(acc.result, e) }
-  }
+      override def foldRight[A, B](fa: TopicPartitionValues[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = Traverse[List].foldRight(fa.success, lb) {
+        case (acc, e) => f(acc.result, e)
+      }
+    }
 
   def from[A, B](xs: Seq[(KafkaResult, TopicPartition, A)]): TopicPartitionValues[A] = {
     val (errors, success) = xs.partition(x => x._1 != KafkaResult.NoError)
@@ -184,17 +198,28 @@ object KafkaPartitioner {
   }
 
   def by[B, A: KafkaPartitioner](f: B => A): KafkaPartitioner[B] =
-    instance { case (v, nrPartitions) => implicitly[KafkaPartitioner[A]].selectPartition(f(v), nrPartitions) }
+    instance {
+      case (v, nrPartitions) => implicitly[KafkaPartitioner[A]].selectPartition(f(v), nrPartitions)
+    }
 
-  implicit val longPartitioner: KafkaPartitioner[Long] = instance[Long] { case (v, nrPartitions) => (v % nrPartitions).toInt }
-  implicit val intPartitioner: KafkaPartitioner[Int] = instance[Int] { case (v, nrPartitions) => v % nrPartitions }
-  implicit val uuidPartition: KafkaPartitioner[UUID] = instance[UUID] { case (v, nrPartitions) => v.hashCode % nrPartitions }
-  implicit val stringPartitioner: KafkaPartitioner[String] = instance[String] { case (v, nrPartitions) => v.hashCode % nrPartitions }
-
-  implicit val contravariantKafkaPartitioner: Contravariant[KafkaPartitioner] = new Contravariant[KafkaPartitioner] {
-    override def contramap[A, B](fa: KafkaPartitioner[A])(f: (B) => A): KafkaPartitioner[B] =
-      instance[B] { case (v, nrPartitions) => fa.selectPartition(f(v), nrPartitions) }
+  implicit val longPartitioner: KafkaPartitioner[Long] = instance[Long] {
+    case (v, nrPartitions) => (v % nrPartitions).toInt
   }
+  implicit val intPartitioner: KafkaPartitioner[Int] = instance[Int] {
+    case (v, nrPartitions) => v % nrPartitions
+  }
+  implicit val uuidPartition: KafkaPartitioner[UUID] = instance[UUID] {
+    case (v, nrPartitions) => v.hashCode % nrPartitions
+  }
+  implicit val stringPartitioner: KafkaPartitioner[String] = instance[String] {
+    case (v, nrPartitions) => v.hashCode % nrPartitions
+  }
+
+  implicit val contravariantKafkaPartitioner: Contravariant[KafkaPartitioner] =
+    new Contravariant[KafkaPartitioner] {
+      override def contramap[A, B](fa: KafkaPartitioner[A])(f: (B) => A): KafkaPartitioner[B] =
+        instance[B] { case (v, nrPartitions) => fa.selectPartition(f(v), nrPartitions) }
+    }
 }
 
 trait KafkaEncoder[A] {
@@ -203,13 +228,14 @@ trait KafkaEncoder[A] {
 
 object KafkaEncoder {
 
-  def fromKeyValueEncoder[K, V](ke: Encoder[K], ve: Encoder[V]): KafkaEncoder[(K, V)] = instance[(K, V)] {
-    case (k, v) =>
-      for {
-        kb <- ke.encode(k)
-        vb <- ve.encode(v)
-      } yield Record(kb.toByteVector, vb.toByteVector)
-  }
+  def fromKeyValueEncoder[K, V](ke: Encoder[K], ve: Encoder[V]): KafkaEncoder[(K, V)] =
+    instance[(K, V)] {
+      case (k, v) =>
+        for {
+          kb <- ke.encode(k)
+          vb <- ve.encode(v)
+        } yield Record(kb.toByteVector, vb.toByteVector)
+    }
 
   def fromValueEncoder[V](ve: Encoder[V]): KafkaEncoder[V] =
     instance[V](v => ve.encode(v).map(b => Record(ByteVector.empty, b.toByteVector)))
@@ -229,12 +255,13 @@ trait KafkaDecoder[A] {
 }
 
 object KafkaDecoder {
-  def fromKeyValueDecoder[K, V](kd: Decoder[K], vd: Decoder[V]): KafkaDecoder[(K, V)] = instance[(K, V)] { record =>
-    for {
-      k <- kd.decode(record.key.toBitVector)
-      v <- vd.decode(record.value.toBitVector)
-    } yield k.value -> v.value
-  }
+  def fromKeyValueDecoder[K, V](kd: Decoder[K], vd: Decoder[V]): KafkaDecoder[(K, V)] =
+    instance[(K, V)] { record =>
+      for {
+        k <- kd.decode(record.key.toBitVector)
+        v <- vd.decode(record.value.toBitVector)
+      } yield k.value -> v.value
+    }
 
   def fromValueDecoder[V](vd: Decoder[V]): KafkaDecoder[V] =
     instance[V](r => vd.decode(r.value.toBitVector).map(_.value))
@@ -258,11 +285,13 @@ trait KafkaCodec[A] extends KafkaEncoder[A] with KafkaDecoder[A] { self =>
 
 object KafkaCodec {
   def fromValueCodec[A](codec: Codec[A]): KafkaCodec[A] = new KafkaCodec[A] {
-    override def encode(value: A): Attempt[Record] = codec.encode(value).map(bv => Record(ByteVector.empty, bv.toByteVector))
+    override def encode(value: A): Attempt[Record] =
+      codec.encode(value).map(bv => Record(ByteVector.empty, bv.toByteVector))
     override def decode(value: Record): Attempt[A] = codec.decodeValue(value.value.toBitVector)
   }
 
   implicit val invariantKafkaCodec: Invariant[KafkaCodec] = new Invariant[KafkaCodec] {
-    override def imap[A, B](fa: KafkaCodec[A])(f: (A) => B)(g: (B) => A): KafkaCodec[B] = fa.imap(f, g)
+    override def imap[A, B](fa: KafkaCodec[A])(f: (A) => B)(g: (B) => A): KafkaCodec[B] =
+      fa.imap(f, g)
   }
 }

@@ -42,7 +42,7 @@ object KafkaDocker {
   def remove(file: File) =
     if (process(file)("rm") != 0) sys.error("Unable to remove")
 
-  private def client = DefaultDockerClient.builder().uri("unix:///var/run/docker.sock").build()
+  private def client         = DefaultDockerClient.builder().uri("unix:///var/run/docker.sock").build()
   private def listContainers = client.listContainers().asScala
 
   def getPortFor(service: String, instance: Int) = {
@@ -50,7 +50,13 @@ object KafkaDocker {
     val containers = listContainers
 
     for {
-      container <- containers.find(c => c.labels().asScala.exists { case (key, value) => key == "com.docker.compose.service" && value == service } && c.labels().asScala.exists { case (key, value) => key == "com.docker.compose.container-number" && value == instance.toString })
+      container <- containers.find(c =>
+        c.labels().asScala.exists {
+          case (key, value) => key == "com.docker.compose.service" && value == service
+        } && c.labels().asScala.exists {
+          case (key, value) =>
+            key == "com.docker.compose.container-number" && value == instance.toString
+      })
       firstPortMapping <- container.ports.asScala.headOption
     } yield firstPortMapping.getPublicPort
   }

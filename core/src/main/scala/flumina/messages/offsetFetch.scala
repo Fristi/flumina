@@ -10,12 +10,14 @@ final case class OffsetFetchTopicResponse(topicName: String, partitions: Vector[
 
 object OffsetFetchTopicRequest {
   val codec: Codec[OffsetFetchTopicRequest] =
-    (("topic" | kafkaRequiredString) :: ("partitions" | kafkaArray(int32))).as[OffsetFetchTopicRequest]
+    (("topic" | kafkaRequiredString) :: ("partitions" | kafkaArray(int32)))
+      .as[OffsetFetchTopicRequest]
 }
 
 object OffsetFetchTopicPartitionResponse {
   val codec: Codec[OffsetFetchTopicPartitionResponse] =
-    (("partition" | int32) :: ("offset" | int64) :: ("metadata" | kafkaOptionalString) :: ("kafkaResult" | KafkaResult.codec)).as[OffsetFetchTopicPartitionResponse]
+    (("partition" | int32) :: ("offset" | int64) :: ("metadata" | kafkaOptionalString) :: ("kafkaResult" | KafkaResult.codec))
+      .as[OffsetFetchTopicPartitionResponse]
 }
 
 object OffsetFetchTopicResponse {

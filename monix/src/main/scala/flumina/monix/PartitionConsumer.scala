@@ -21,7 +21,7 @@ final class PartitionConsumer[A](parts: Int, overflowStrategy: OverflowStrategy.
     val errors = mutable.ArrayBuffer.empty[Throwable]
 
     val publishSubject = PublishSubject[A]()
-    val pub = publishSubject.whileBusyBuffer(overflowStrategy)
+    val pub            = publishSubject.whileBusyBuffer(overflowStrategy)
     val isUpstreamDone = AtomicBoolean(false)
     val refCount = RefCountCancelable { () =>
       errors.synchronized {

@@ -15,7 +15,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
 
   private case class StashedRequest(from: ActorRef, request: KafkaBrokerRequest)
 
-  private val manager = IO(Tcp)
+  private val manager       = IO(Tcp)
   private val retryStrategy = new KafkaConnectionRetryStrategy.Infinite(5.seconds)
 
   //Append the stashed request to the list, but drop the tail. We can do this, because the requests will timeout eventually
@@ -27,7 +27,8 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
     else None
 
   private def randomBroker(connections: Map[KafkaBroker.Node, Set[ActorRef]]) =
-    if (connections.nonEmpty) Some(connections.iterator.drop(Random.nextInt(connections.size)).next())
+    if (connections.nonEmpty)
+      Some(connections.iterator.drop(Random.nextInt(connections.size)).next())
     else None
 
   private def running(connectionsBeingSpawned: Set[KafkaBroker.Node], stashedRequestsBuffer: List[StashedRequest], connections: Map[KafkaBroker.Node, Set[ActorRef]]): Actor.Receive = {
@@ -38,7 +39,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
       } else {
         (for {
           (_, nodes) <- randomBroker(connections)
-          node <- randomNode(nodes)
+          node       <- randomNode(nodes)
         } yield node) foreach (_ forward request)
       }
 
@@ -80,7 +81,9 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
 
   private def spawnConnections(broker: KafkaBroker.Node): Unit = {
     log.debug(s"Spawning $connectionsPerBroker connections for $broker")
-    (1 to connectionsPerBroker) foreach { i => context.actorOf(propsConn(broker), connId(broker, i)) }
+    (1 to connectionsPerBroker) foreach { i =>
+      context.actorOf(propsConn(broker), connId(broker, i))
+    }
   }
 
   override def preStart(): Unit = bootstrapBrokers.foreach(spawnConnections)

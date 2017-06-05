@@ -19,4 +19,3 @@ package object client {
     def ===(other: A): Boolean = self == other
   }
 }
-

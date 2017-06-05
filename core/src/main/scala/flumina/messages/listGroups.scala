@@ -7,5 +7,7 @@ import flumina._
 final case class ListGroupGroupResponse(groupId: String, protocolType: String)
 
 object ListGroupGroupResponse {
-  val codec: Codec[ListGroupGroupResponse] = (("groupId" | kafkaRequiredString) :: ("protocolType" | kafkaRequiredString)).as[ListGroupGroupResponse]
+  val codec: Codec[ListGroupGroupResponse] =
+    (("groupId" | kafkaRequiredString) :: ("protocolType" | kafkaRequiredString))
+      .as[ListGroupGroupResponse]
 }

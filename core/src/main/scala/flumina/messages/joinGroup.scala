@@ -10,7 +10,8 @@ final case class JoinGroupMemberResponse(memberId: String, metadata: ByteVector)
 
 object JoinGroupProtocolRequest {
   val codec: Codec[JoinGroupProtocolRequest] =
-    (("protocolName" | kafkaRequiredString) :: ("metadata" | kafkaBytes)).as[JoinGroupProtocolRequest]
+    (("protocolName" | kafkaRequiredString) :: ("metadata" | kafkaBytes))
+      .as[JoinGroupProtocolRequest]
 }
 
 object JoinGroupMemberResponse {

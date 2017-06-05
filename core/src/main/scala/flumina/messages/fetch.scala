@@ -12,7 +12,8 @@ final case class FetchTopicResponse(topicName: String, partitions: Vector[FetchT
 
 object FetchTopicPartitionRequest {
   val codec: Codec[FetchTopicPartitionRequest] =
-    (("partition" | int32) :: ("fetch_offset" | int64) :: ("max_bytes" | int32)).as[FetchTopicPartitionRequest]
+    (("partition" | int32) :: ("fetch_offset" | int64) :: ("max_bytes" | int32))
+      .as[FetchTopicPartitionRequest]
 }
 
 object FetchTopicRequest {
@@ -24,9 +25,9 @@ object FetchTopicPartitionResponse {
   val codec: Codec[FetchTopicPartitionResponse] =
     (
       ("partition" | int32) ::
-      ("kafkaResult" | KafkaResult.codec) ::
-      ("highWaterMark" | int64) ::
-      ("messages" | variableSizeBytes(int32, MessageSetCodec.messageSetCodec))
+        ("kafkaResult" | KafkaResult.codec) ::
+        ("highWaterMark" | int64) ::
+        ("messages" | variableSizeBytes(int32, MessageSetCodec.messageSetCodec))
     ).as[FetchTopicPartitionResponse]
 }
 

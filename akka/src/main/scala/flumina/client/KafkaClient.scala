@@ -70,5 +70,7 @@ final class KafkaClient private (settings: KafkaSettings)(implicit S: ActorSyste
 object KafkaClient {
 
   def apply()(implicit S: ActorSystem, EC: ExecutionContext): KafkaClient =
-    new KafkaClient(loadConfig[KafkaSettings](S.settings.config.getConfig("flumina")).fold(errs => sys.error(s"Error loading config: $errs"), identity))
+    new KafkaClient(
+      loadConfig[KafkaSettings](S.settings.config.getConfig("flumina"))
+        .fold(errs => sys.error(s"Error loading config: $errs"), identity))
 }

@@ -9,68 +9,62 @@ sealed trait KafkaResult
 
 object KafkaResult {
 
-  case object NoError extends KafkaResult
-  case object Unknown extends KafkaResult
-  case object OffsetOutOfRange extends KafkaResult
-  case object InvalidMessage extends KafkaResult
-  case object UnknownTopicOrPartition extends KafkaResult
-  case object InvalidMessageSize extends KafkaResult
-  case object LeaderNotAvailable extends KafkaResult
-  case object NotLeaderForPartition extends KafkaResult
-  case object RequestTimedOut extends KafkaResult
-  case object BrokerNotAvailable extends KafkaResult
-  case object ReplicaNotAvailable extends KafkaResult
-  case object MessageSizeTooLarge extends KafkaResult
-  case object StaleControllerEpochCode extends KafkaResult
-  case object OffsetMetadataTooLargeCode extends KafkaResult
-  case object OffsetsLoadInProgressCode extends KafkaResult
+  case object NoError                             extends KafkaResult
+  case object Unknown                             extends KafkaResult
+  case object OffsetOutOfRange                    extends KafkaResult
+  case object InvalidMessage                      extends KafkaResult
+  case object UnknownTopicOrPartition             extends KafkaResult
+  case object InvalidMessageSize                  extends KafkaResult
+  case object LeaderNotAvailable                  extends KafkaResult
+  case object NotLeaderForPartition               extends KafkaResult
+  case object RequestTimedOut                     extends KafkaResult
+  case object BrokerNotAvailable                  extends KafkaResult
+  case object ReplicaNotAvailable                 extends KafkaResult
+  case object MessageSizeTooLarge                 extends KafkaResult
+  case object StaleControllerEpochCode            extends KafkaResult
+  case object OffsetMetadataTooLargeCode          extends KafkaResult
+  case object OffsetsLoadInProgressCode           extends KafkaResult
   case object ConsumerCoordinatorNotAvailableCode extends KafkaResult
-  case object NotCoordinatorForConsumerCode extends KafkaResult
-  case object InvalidTopicException extends KafkaResult
-  case object RecordListTooLarge extends KafkaResult
-  case object NotEnoughReplicas extends KafkaResult
-  case object NotEnoughReplicasAfterAppend extends KafkaResult
-  case object InvalidRequiredAcks extends KafkaResult
-  case object IllegalGeneration extends KafkaResult
-  case object UnconsistentGroupProtocol extends KafkaResult
-  case object InvalidGroupId extends KafkaResult
-  case object UnknownMemberId extends KafkaResult
-  case object InvalidSessionTimeout extends KafkaResult
-  case object RebalanceInProgress extends KafkaResult
-  case object InvalidCommitOffsetSize extends KafkaResult
-  case object TopicAuthorizationFailed extends KafkaResult
-  case object GroupAuthorizationFailed extends KafkaResult
-  case object ClusterAuthorizationFailed extends KafkaResult
-  case object InvalidTimestamp extends KafkaResult
-  case object UnsupportedSASLMechanism extends KafkaResult
-  case object IllegalSASLState extends KafkaResult
-  case object UnsupportedVersion extends KafkaResult
-  case object TopicAlreadyExists extends KafkaResult
-  case object InvalidPartitions extends KafkaResult
-  case object InvalidReplicationFactor extends KafkaResult
-  case object InvalidReplicaAssignment extends KafkaResult
-  case object InvalidConfig extends KafkaResult
-  case object NotController extends KafkaResult
-  case object InvalidRequest extends KafkaResult
-  case object UnsupportedForMessageFormat extends KafkaResult
+  case object NotCoordinatorForConsumerCode       extends KafkaResult
+  case object InvalidTopicException               extends KafkaResult
+  case object RecordListTooLarge                  extends KafkaResult
+  case object NotEnoughReplicas                   extends KafkaResult
+  case object NotEnoughReplicasAfterAppend        extends KafkaResult
+  case object InvalidRequiredAcks                 extends KafkaResult
+  case object IllegalGeneration                   extends KafkaResult
+  case object UnconsistentGroupProtocol           extends KafkaResult
+  case object InvalidGroupId                      extends KafkaResult
+  case object UnknownMemberId                     extends KafkaResult
+  case object InvalidSessionTimeout               extends KafkaResult
+  case object RebalanceInProgress                 extends KafkaResult
+  case object InvalidCommitOffsetSize             extends KafkaResult
+  case object TopicAuthorizationFailed            extends KafkaResult
+  case object GroupAuthorizationFailed            extends KafkaResult
+  case object ClusterAuthorizationFailed          extends KafkaResult
+  case object InvalidTimestamp                    extends KafkaResult
+  case object UnsupportedSASLMechanism            extends KafkaResult
+  case object IllegalSASLState                    extends KafkaResult
+  case object UnsupportedVersion                  extends KafkaResult
+  case object TopicAlreadyExists                  extends KafkaResult
+  case object InvalidPartitions                   extends KafkaResult
+  case object InvalidReplicationFactor            extends KafkaResult
+  case object InvalidReplicaAssignment            extends KafkaResult
+  case object InvalidConfig                       extends KafkaResult
+  case object NotController                       extends KafkaResult
+  case object InvalidRequest                      extends KafkaResult
+  case object UnsupportedForMessageFormat         extends KafkaResult
 
   def canRetry(result: KafkaResult): Boolean = result match {
-    case InvalidMessage |
-      UnknownTopicOrPartition |
-      LeaderNotAvailable |
-      NotLeaderForPartition |
-      RequestTimedOut |
-      OffsetsLoadInProgressCode |
-      ConsumerCoordinatorNotAvailableCode |
-      NotCoordinatorForConsumerCode |
-      NotEnoughReplicas |
-      NotEnoughReplicasAfterAppend => true
+    case InvalidMessage | UnknownTopicOrPartition | LeaderNotAvailable | NotLeaderForPartition | RequestTimedOut | OffsetsLoadInProgressCode | ConsumerCoordinatorNotAvailableCode |
+        NotCoordinatorForConsumerCode | NotEnoughReplicas | NotEnoughReplicasAfterAppend =>
+      true
     case _ => false
   }
 
   implicit val eq: Eq[KafkaResult] = Eq.fromUniversalEquals[KafkaResult]
 
-  implicit val codec: Codec[KafkaResult] = discriminated[KafkaResult].by(int16)
+  implicit val codec: Codec[KafkaResult] = discriminated[KafkaResult]
+    .by(int16)
     .typecase(0, provide(NoError))
     .typecase(-1, provide(Unknown))
     .typecase(1, provide(OffsetOutOfRange))
@@ -123,15 +117,18 @@ final case class MemberAssignmentData(version: Int, topicPartitions: Vector[Memb
 
 object ConsumerProtocolMetadataData {
   implicit val codec: Codec[ConsumerProtocolMetadataData] =
-    (("version" | int16) :: ("subscriptions" | kafkaArray(kafkaRequiredString)) :: ("userData" | kafkaBytes)).as[ConsumerProtocolMetadataData]
+    (("version" | int16) :: ("subscriptions" | kafkaArray(kafkaRequiredString)) :: ("userData" | kafkaBytes))
+      .as[ConsumerProtocolMetadataData]
 }
 
 object MemberAssignmentTopicPartitionData {
   implicit val codec: Codec[MemberAssignmentTopicPartitionData] =
-    (("topicName" | kafkaRequiredString) :: ("partition" | kafkaArray(int32))).as[MemberAssignmentTopicPartitionData]
+    (("topicName" | kafkaRequiredString) :: ("partition" | kafkaArray(int32)))
+      .as[MemberAssignmentTopicPartitionData]
 }
 
 object MemberAssignmentData {
   implicit def codec(implicit topicPartition: Codec[MemberAssignmentTopicPartitionData]): Codec[MemberAssignmentData] =
-    (("version" | int32) :: ("partitions" | kafkaArray(topicPartition)) :: ("userData" | kafkaBytes)).as[MemberAssignmentData]
+    (("version" | int32) :: ("partitions" | kafkaArray(topicPartition)) :: ("userData" | kafkaBytes))
+      .as[MemberAssignmentData]
 }

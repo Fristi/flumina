@@ -11,7 +11,8 @@ final case class OffsetCommitTopicResponse(topicName: String, partitions: Vector
 
 object OffsetCommitTopicPartitionRequest {
   val codec: Codec[OffsetCommitTopicPartitionRequest] =
-    (("partition" | int32) :: ("offset" | int64) :: ("metadata" | kafkaOptionalString)).as[OffsetCommitTopicPartitionRequest]
+    (("partition" | int32) :: ("offset" | int64) :: ("metadata" | kafkaOptionalString))
+      .as[OffsetCommitTopicPartitionRequest]
 }
 
 object OffsetCommitTopicRequest {
@@ -21,7 +22,8 @@ object OffsetCommitTopicRequest {
 
 object OffsetCommitTopicPartitionResponse {
   val codec: Codec[OffsetCommitTopicPartitionResponse] =
-    (("partition" | int32) :: ("kafkaResult" | KafkaResult.codec)).as[OffsetCommitTopicPartitionResponse]
+    (("partition" | int32) :: ("kafkaResult" | KafkaResult.codec))
+      .as[OffsetCommitTopicPartitionResponse]
 }
 
 object OffsetCommitTopicResponse {

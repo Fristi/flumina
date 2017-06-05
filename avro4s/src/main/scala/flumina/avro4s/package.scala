@@ -22,38 +22,42 @@ package object avro4s {
     private val encoderFactory = EncoderFactory.get
     private val decoderFactory = DecoderFactory.get
 
-    private def write(v: A): Attempt[BitVector] = try {
-      val out = new ByteArrayOutputStream
-      val encoder = encoderFactory.binaryEncoder(out, null)
-      val writer = new GenericDatumWriter[GenericRecord](S.apply())
+    private def write(v: A): Attempt[BitVector] =
+      try {
+        val out     = new ByteArrayOutputStream
+        val encoder = encoderFactory.binaryEncoder(out, null)
+        val writer  = new GenericDatumWriter[GenericRecord](S.apply())
 
-      writer.write(E(v), encoder)
-      encoder.flush()
-      Attempt.successful(BitVector(out.toByteArray))
-    } catch {
-      case NonFatal(t) => Attempt.failure(Err(t.getMessage))
-    }
+        writer.write(E(v), encoder)
+        encoder.flush()
+        Attempt.successful(BitVector(out.toByteArray))
+      } catch {
+        case NonFatal(t) => Attempt.failure(Err(t.getMessage))
+      }
 
-    private def read(id: Int, bitVector: BitVector) = try {
-      val schema = schemaRegistry.getByID(id)
-      val reader = new GenericDatumReader[GenericRecord](schema)
+    private def read(id: Int, bitVector: BitVector) =
+      try {
+        val schema = schemaRegistry.getByID(id)
+        val reader = new GenericDatumReader[GenericRecord](schema)
 
-      val decoder = decoderFactory.binaryDecoder(bitVector.toByteArray, null)
+        val decoder = decoderFactory.binaryDecoder(bitVector.toByteArray, null)
 
-      Attempt.successful(D(reader.read(null, decoder)))
-    } catch {
-      case NonFatal(t) => Attempt.failure(Err(t.getMessage))
-    }
+        Attempt.successful(D(reader.read(null, decoder)))
+      } catch {
+        case NonFatal(t) => Attempt.failure(Err(t.getMessage))
+      }
 
-    override def encode(value: A): Attempt[Record] = for {
-      bv <- int16.encode(id)
-      payload <- write(value)
-    } yield Record(ByteVector.empty, (bv ++ payload).toByteVector)
+    override def encode(value: A): Attempt[Record] =
+      for {
+        bv      <- int16.encode(id)
+        payload <- write(value)
+      } yield Record(ByteVector.empty, (bv ++ payload).toByteVector)
 
-    override def decode(value: Record): Attempt[A] = for {
-      identifier <- int16.decode(value.value.toBitVector)
-      entity <- read(identifier.value, identifier.remainder)
-    } yield entity
+    override def decode(value: Record): Attempt[A] =
+      for {
+        identifier <- int16.decode(value.value.toBitVector)
+        entity     <- read(identifier.value, identifier.remainder)
+      } yield entity
   }
 
 }

@@ -127,21 +127,22 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
       }
     }
 
-    def run(toRead: Option[Int], currentBuffer: ByteString): (Option[Int], ByteString) = toRead match {
-      case Some(r) =>
-        if (currentBuffer.size >= r) {
-          decode(currentBuffer.take(r))
-          run(None, currentBuffer.drop(r))
-        } else {
-          toRead -> currentBuffer
-        }
-      case None =>
-        if (currentBuffer.size >= 4) {
-          run(Some(bigEndianDecoder(currentBuffer.take(4).iterator, 4)), currentBuffer.drop(4))
-        } else {
-          None -> currentBuffer
-        }
-    }
+    def run(toRead: Option[Int], currentBuffer: ByteString): (Option[Int], ByteString) =
+      toRead match {
+        case Some(r) =>
+          if (currentBuffer.size >= r) {
+            decode(currentBuffer.take(r))
+            run(None, currentBuffer.drop(r))
+          } else {
+            toRead -> currentBuffer
+          }
+        case None =>
+          if (currentBuffer.size >= 4) {
+            run(Some(bigEndianDecoder(currentBuffer.take(4).iterator, 4)), currentBuffer.drop(4))
+          } else {
+            None -> currentBuffer
+          }
+      }
 
     val (read, buffer) = run(bytesToRead, readBuffer ++ data)
 
@@ -149,9 +150,8 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     readBuffer = buffer
   }
 
-  private def writeFirst(): Unit = {
+  private def writeFirst(): Unit =
     connection ! Write(writeBuffer(0), Ack(storageOffset))
-  }
 
   private def writeAll(): Unit = {
     for ((data, i) <- writeBuffer.zipWithIndex) {
@@ -209,11 +209,11 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
         case Attempt.Failure(err) => log.error(s"Error encoding: ${err.messageWithContext}")
       }
 
-    case WritingResumed         => writeFirst()
-    case Received(data)         => read(data)
-    case PeerClosed             => context.become(buffering(nack, toAck, peerClosed = true))
-    case Aborted                => goReconnect()
-    case Closed                 => goReconnect()
+    case WritingResumed => writeFirst()
+    case Received(data) => read(data)
+    case PeerClosed     => context.become(buffering(nack, toAck, peerClosed = true))
+    case Aborted        => goReconnect()
+    case Closed         => goReconnect()
 
     case Ack(ack) if ack < nack => acknowledge(ack)
     case Ack(ack) =>
@@ -266,17 +266,19 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
   }
 
   private def encodeEnvelope(correlationId: Int, request: KafkaConnectionRequest) = {
-    RequestEnvelope.codec.encode(RequestEnvelope(request.apiKey, request.version, correlationId, Some("flumina"), request.requestPayload)).map { bytes =>
+    RequestEnvelope.codec
+      .encode(RequestEnvelope(request.apiKey, request.version, correlationId, Some("flumina"), request.requestPayload))
+      .map { bytes =>
+        val msg     = bytes.toByteString
+        val msgSize = msg.size
+        val header  = ByteString((msgSize >> 24) & 0xFF, (msgSize >> 16) & 0xFF, (msgSize >> 8) & 0xFF, msgSize & 0xFF)
 
-      val msg = bytes.toByteString
-      val msgSize = msg.size
-      val header = ByteString((msgSize >> 24) & 0xFF, (msgSize >> 16) & 0xFF, (msgSize >> 8) & 0xFF, msgSize & 0xFF)
-
-      header ++ msg
-    }
+        header ++ msg
+      }
   }
 
-  private def decodeEnvelope(byteString: ByteString) = ResponseEnvelope.codec.decodeValue(byteString.toBitVector)
+  private def decodeEnvelope(byteString: ByteString) =
+    ResponseEnvelope.codec.decodeValue(byteString.toBitVector)
 }
 
 object KafkaConnection {
