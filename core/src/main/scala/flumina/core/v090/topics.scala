@@ -2,10 +2,11 @@ package flumina.core.v090
 
 import scodec.codecs._
 import flumina.core._
+import scodec.Codec
 final case class ReplicaAssignment(partitionId: Int, replicas: Vector[Int])
 
 object ReplicaAssignment {
-  val codec = (("partitionId" | int32) :: ("replicas" | kafkaArray(int32))).as[ReplicaAssignment]
+  val codec: Codec[ReplicaAssignment] = (("partitionId" | int32) :: ("replicas" | kafkaArray(int32))).as[ReplicaAssignment]
 }
 
 final case class CreateTopicRequest(
@@ -18,7 +19,7 @@ final case class CreateTopicRequest(
 
 object CreateTopicRequest {
 
-  val codec =
+  val codec: Codec[CreateTopicRequest] =
     (
       ("partitionId" | kafkaRequiredString) ::
       ("nrPartitions" | kafkaOptionalInt32) ::
@@ -31,5 +32,5 @@ object CreateTopicRequest {
 final case class TopicResponse(topic: String, kafkaResult: KafkaResult)
 
 object TopicResponse {
-  val codec = (("topic" | kafkaRequiredString) :: ("kafkaResult" | KafkaResult.codec)).as[TopicResponse]
+  val codec: Codec[TopicResponse] = (("topic" | kafkaRequiredString) :: ("kafkaResult" | KafkaResult.codec)).as[TopicResponse]
 }

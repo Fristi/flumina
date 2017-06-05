@@ -7,7 +7,7 @@ import cats.free.Free
 import cats.implicits._
 import cats.scalatest.EitherMatchers
 import com.typesafe.config.ConfigFactory
-import flumina.{KafkaDocker, KafkaDockerTest}
+import flumina.{ TestUtils, KafkaDocker, KafkaDockerTest }
 import flumina.core._
 import flumina.core.ir._
 import org.scalatest._
@@ -64,15 +64,12 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
       } yield fetchResult
 
       whenReady(run(prg)) { result =>
-        result.success should have size 1
+        result.success should have size 20
         result.errors should have size 0
 
-        result.success.head.result should have size 20
-        result.success.head.result.head.record shouldBe testRecord
+        result.success.head.result.record shouldBe testRecord
 
-        forAll(result.success) { item =>
-          respectOrder(item.result)(_.offset) shouldBe true
-        }
+        result.success.map(_.result.offset) should TestUtils.respectOrder[Long](identity)
       }
     }
 
@@ -105,7 +102,7 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
         gr <- fromEither(client.joinGroup(groupId, None, "consumer", Seq(GroupProtocol("roundrobin", Seq(ConsumerProtocol(0, Vector("test"), ByteVector.empty))))))
         _ <- fromEither(client.syncGroup(groupId, gr.generationId, gr.memberId, Seq(GroupAssignment(gr.memberId, memberAssignment))))
         fetchResult <- pure(client.fetch(Set(TopicPartitionValue(topicPartition, 0l))))
-        offsetCommitResult <- pure(client.offsetCommit(groupId, gr.generationId, gr.memberId, Map(topicPartition -> OffsetMetadata(fetchResult.success.head.result.maxBy(_.offset).offset, Some("metadata")))))
+        offsetCommitResult <- pure(client.offsetCommit(groupId, gr.generationId, gr.memberId, Map(topicPartition -> OffsetMetadata(fetchResult.success.maxBy(_.result.offset).result.offset, Some("metadata")))))
         offsetFetchResult <- pure(client.offsetFetch(groupId, Set(topicPartition)))
       } yield offsetCommitResult -> offsetFetchResult
 
@@ -267,16 +264,6 @@ abstract class KafkaClientTest extends Suite with WordSpecLike
         result should be(right)
       }
     }
-  }
-
-  def respectOrder[A](items: Seq[A])(f: (A => Long)) = {
-    @tailrec
-    def loop(list: List[A]): Boolean = list match {
-      case first :: second :: tail => if (f(first) < f(second)) loop(second :: tail) else false
-      case _                       => true
-    }
-
-    loop(items.toList)
   }
 
   final def kafkaScaling = 3

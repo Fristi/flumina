@@ -1,7 +1,7 @@
 package flumina.akkaimpl
 
 import com.typesafe.config.ConfigFactory
-import flumina.core.ir.{KafkaBroker, KafkaOperationalSettings, KafkaSettings}
+import flumina.core.ir.{ KafkaBroker, KafkaOperationalSettings, KafkaSettings }
 import org.scalatest._
 import pureconfig.loadConfig
 

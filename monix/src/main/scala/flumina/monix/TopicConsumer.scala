@@ -1,40 +1,59 @@
 package flumina.monix
 
+import cats._
+import cats.implicits._
 import flumina.akkaimpl.KafkaClient
-import flumina.core.ir.{RecordEntry, TopicPartitionValue}
+import flumina.core.ir._
 import monix.eval.{Callback, Task}
 import monix.execution.Ack.{Continue, Stop}
 import monix.execution.{Cancelable, Scheduler}
 import monix.reactive.Observable
 import monix.reactive.observers.Subscriber
+import scodec.Attempt
 
-private[monix] class TopicConsumer(client: KafkaClient, partition: TopicPartitionValue[Long], consumptionStrategy: ConsumptionStrategy, offsetStore: OffsetStore)(implicit S: Scheduler) extends Observable[TopicPartitionValue[RecordEntry]] {
+private[monix] class TopicConsumer[A](client: KafkaClient, topicPartition: TopicPartition, initialOffset: Long, consumptionStrategy: ConsumptionStrategy, codecErrorHandler: CodecErrorHandler)(implicit S: Scheduler, D: KafkaDecoder[A]) extends Observable[TopicPartitionValue[OffsetValue[A]]] {
 
-  def offsetFor(previousOffsets: TopicPartitionValue[Long])(current: TopicPartitionValue[List[RecordEntry]]) = {
-    if (current.result.nonEmpty) {
-      TopicPartitionValue(current.topicPartition, current.result.maxBy(_.offset).offset + 1)
-    } else {
-      previousOffsets
+  private def maxByOpt[B](seq: Seq[B])(f: B => Long): Option[Long] = {
+    seq.foldLeft(Option.empty[Long]) {
+      case (acc, e) =>
+        acc match {
+          case Some(offset) if f(e) > offset => Some(f(e))
+          case None                          => Some(f(e))
+          case _                             => acc
+        }
     }
   }
 
-  def feedTask(offset: TopicPartitionValue[Long], out: Subscriber[TopicPartitionValue[RecordEntry]]): Task[Unit] = {
-    Task.fromFuture(client.fetch(Set(offset))).flatMap(values =>
+  def feedTask(offset: Long, out: Subscriber[TopicPartitionValue[OffsetValue[A]]]): Task[Unit] = {
+    Task.fromFuture(client.fetch(Set(TopicPartitionValue(topicPartition, offset)))).flatMap(values =>
       if (values.errors.nonEmpty) {
         Task.now(out.onError(new TopicErrorException(values.errors)))
       } else {
-        def commit = offsetStore.save(offset)
-        def runNext = feedTask(offsetFor(offset)(values.success.headOption.getOrElse(TopicPartitionValue(offset.topicPartition, List.empty))), out)
+        def runNext = feedTask(maxByOpt(values.success)(_.result.offset).map(_ + 1l).getOrElse(0l), out)
+        val nrResults = values.success.map(_.result.size).sum
 
-        if (values.success.map(_.result.size).sum == 0) {
+        if (nrResults == 0) {
           consumptionStrategy match {
-            case ConsumptionStrategy.TerminateEndOfStream => commit flatMap (_ => Task.now(out.onComplete()))
-            case ConsumptionStrategy.Tail(delay)          => commit flatMap (_ => runNext.delayExecution(delay))
+            case ConsumptionStrategy.TerminateEndOfStream => Task.now(out.onComplete())
+            case ConsumptionStrategy.Tail(delay)          => runNext.delayExecution(delay)
           }
         } else {
-          Task.fromFuture(out.onNextAll(values.success.flatMap(x => x.result.map(y => TopicPartitionValue(x.topicPartition, y))))) flatMap {
-            case Continue => commit flatMap (_ => runNext)
-            case Stop     => Task.unit
+
+          val traverse = Traverse[TopicPartitionValues].compose(Traverse[OffsetValue])
+          val result: Attempt[TopicPartitionValues[OffsetValue[A]]] = traverse
+            .sequence[Attempt, A](traverse.map(values)(D.decode))
+
+          result match {
+            case Attempt.Successful(v) =>
+              Task.fromFuture(out.onNextAll(v.success)) flatMap {
+                case Continue => runNext
+                case Stop     => Task.unit
+              }
+            case Attempt.Failure(err) =>
+              Task.fromFuture(codecErrorHandler.handle(err)) flatMap {
+                case Continue => runNext
+                case Stop     => Task.now(out.onError(new Throwable(err.message)))
+              }
           }
         }
       }
@@ -42,14 +61,15 @@ private[monix] class TopicConsumer(client: KafkaClient, partition: TopicPartitio
   }
 
   @SuppressWarnings(Array("org.wartremover.warts.Overloading"))
-  override def unsafeSubscribeFn(out: Subscriber[TopicPartitionValue[RecordEntry]]): Cancelable = {
+  override def unsafeSubscribeFn(out: Subscriber[TopicPartitionValue[OffsetValue[A]]]): Cancelable = {
     val callback = new Callback[Unit] {
       def onSuccess(value: Unit): Unit =
         out.onComplete()
+
       def onError(ex: Throwable): Unit =
         out.onError(ex)
     }
 
-    feedTask(partition, out).runAsync(callback)
+    feedTask(initialOffset, out).runAsync(callback)
   }
 }

@@ -3,12 +3,14 @@ package flumina.core.v090
 import cats.data.Kleisli
 import cats.{MonadError, ~>}
 import cats.implicits._
+import cats.kernel.Monoid
 import flumina.core.ir._
 import flumina.core._
 import scodec.Attempt
 import scodec.bits.{BitVector, ByteVector}
 
 import scala.annotation.tailrec
+import scala.collection.immutable
 
 final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitVector])(implicit F: MonadError[F, Throwable]) extends (KafkaA ~> Kleisli[F, KafkaContext, ?]) {
 
@@ -49,7 +51,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       case KafkaResponse.LeaveGroup(kafkaResult) => F.pure(if (kafkaResult === KafkaResult.NoError) Right(()) else Left(kafkaResult))
     }
 
-  def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
+  private def offsetCommit(groupId: String, generationId: Int, memberId: String, offsets: Map[TopicPartition, OffsetMetadata]) = {
     val offsetTopics = offsets
       .groupBy { case (topicPartition, _) => topicPartition }
       .map {
@@ -117,7 +119,7 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
       }
     } yield response
   }
-  def fetch(topicPartitionOffsets: Traversable[TopicPartitionValue[Long]]) = {
+  def fetch(topicPartitionOffsets: Traversable[TopicPartitionValue[Long]]): Kleisli[F, KafkaContext, TopicPartitionValues[OffsetValue[Record]]] = {
     def makeRequest(ctx: KafkaContext) = KafkaRequest.Fetch(
       replicaId = -1,
       maxWaitTime = ctx.settings.fetchMaxWaitTime.toMillis.toInt,
@@ -132,28 +134,30 @@ final class BasicInterpreter[F[_]](requestResponse: KafkaBrokerRequest => F[BitV
           .toVector
     )
 
+    @tailrec
+    def loop(msgs: List[Message], acc: List[OffsetValue[Record]]): List[OffsetValue[Record]] = msgs match {
+      case Message.SingleMessage(offset, _, _, key, value) :: xs =>
+        loop(xs, OffsetValue(offset, Record(key, value)) :: acc)
+      case Message.CompressedMessages(_, _, _, _, m) :: xs =>
+        loop(m.toList ++ xs, acc)
+      case Nil => acc.reverse
+    }
+
     doRequest(makeRequest, trace = false) {
       case KafkaResponse.Fetch(throttleTime, topics) =>
         F.pure {
-          TopicPartitionValues.from {
-            for {
-              topic <- topics
-              partition <- topic.partitions
-            } yield {
-              val topicPartition = TopicPartition(topic.topicName, partition.partition)
+          val topicPartitionValues: Seq[TopicPartitionValues[OffsetValue[Record]]] = for {
+            topic <- topics
+            partition <- topic.partitions
+          } yield {
+            val topicPartition = TopicPartition(topic.topicName, partition.partition)
+            val messages = loop(partition.messages.toList, Nil)
 
-              @tailrec
-              def loop(msgs: List[Message], acc: List[RecordEntry]): List[RecordEntry] = msgs match {
-                case Message.SingleMessage(offset, _, _, key, value) :: xs =>
-                  loop(xs, RecordEntry(offset, Record(key, value)) :: acc)
-                case Message.CompressedMessages(_, _, _, _, m) :: xs =>
-                  loop(m.toList ++ xs, acc)
-                case Nil => acc.reverse
-              }
-
-              (partition.kafkaResult, topicPartition, loop(partition.messages.toList, Nil))
-            }
+            if (partition.kafkaResult == KafkaResult.NoError) TopicPartitionValues(Nil, messages.map(o => TopicPartitionValue(topicPartition, o)))
+            else TopicPartitionValues(List(TopicPartitionValue(topicPartition, partition.kafkaResult)), List.empty[TopicPartitionValue[OffsetValue[Record]]])
           }
+
+          Monoid.combineAll(topicPartitionValues)
         }
     }
   }

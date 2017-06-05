@@ -23,7 +23,7 @@ package object core {
   implicit class RichMap[K, V](val map: Map[K, V]) {
 
     @inline
-    def updatedValue(key: K, default: => V)(update: V => V) =
+    def updatedValue(key: K, default: => V)(update: V => V): Map[K, V] =
       map.updated(key, update(map.getOrElse(key, default)))
   }
 
@@ -37,7 +37,7 @@ package object core {
     kafkaOptionalString.exmap(decode, encode)
   }
 
-  def kafkaBool = int8.xmap[Boolean](x => x == 1, x => if (x) 1 else 0)
+  def kafkaBool: Codec[Boolean] = int8.xmap[Boolean](x => x == 1, x => if (x) 1 else 0)
 
   val kafkaBytes: Codec[ByteVector] = new KafkaBytesCodec
 
@@ -50,7 +50,7 @@ package object core {
   def kafkaMap[K, V](keyCodec: Codec[K], valueCodec: Codec[V]): Codec[Map[K, V]] =
     kafkaArray(keyCodec ~ valueCodec).xmap(_.toMap, _.toVector)
 
-  val kafkaOptionalInt32 = {
+  val kafkaOptionalInt32: Codec[Option[Int]] = {
     def decode(x: Int): Option[Int] = if (x === -1) None else Some(x)
     def encode(x: Option[Int]) = x match {
       case Some(n) => n
@@ -60,7 +60,7 @@ package object core {
     int32.xmap(decode, encode)
   }
 
-  val kafkaOptionalInt16 = {
+  val kafkaOptionalInt16: Codec[Option[Int]] = {
     def decode(x: Int): Option[Int] = if (x === -1) None else Some(x)
     def encode(x: Option[Int]) = x match {
       case Some(n) => n

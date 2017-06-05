@@ -1,29 +1,28 @@
 package flumina.monix
 
-import monix.eval.Callback
+import java.util.concurrent.atomic.AtomicInteger
+
+import monix.eval.{Callback, Task}
 import monix.execution.atomic.AtomicBoolean
 import monix.execution.cancelables.{AssignableCancelable, RefCountCancelable}
 import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.reactive._
-import monix.reactive.exceptions.CompositeException
+import monix.execution.exceptions.CompositeException
 import monix.reactive.observers.Subscriber
 import monix.reactive.subjects.PublishSubject
 
 import scala.collection.mutable
 import scala.concurrent.Future
-import scala.math.Integral
 
-final class PartitionConsumer[A, N](nrPartitions: Int, overflowStrategy: OverflowStrategy.Synchronous[A], partition: A => N, consumer: (Int, Seq[A]) => Future[Ack])(implicit N: Integral[N]) extends Consumer[A, Unit] {
+final class PartitionConsumer[A](parts: Int, overflowStrategy: OverflowStrategy.Synchronous[A], partition: (Int, A) => Int, consumer: (Int, Seq[A]) => Future[Ack]) extends Consumer[A, Unit] {
   override def createSubscriber(cb: Callback[Unit], s: Scheduler): (Subscriber[A], AssignableCancelable) = {
 
     @SuppressWarnings(Array("org.wartremover.warts.MutableDataStructures"))
     val errors = mutable.ArrayBuffer.empty[Throwable]
 
-    val obs = PublishSubject[A]()
-    val pub = obs.whileBusyBuffer(overflowStrategy)
+    val publishSubject = PublishSubject[A]()
+    val pub = publishSubject.whileBusyBuffer(overflowStrategy)
     val isUpstreamDone = AtomicBoolean(false)
-    val nrPartitionsN = N.fromInt(nrPartitions)
-
     val refCount = RefCountCancelable { () =>
       errors.synchronized {
         if (errors.nonEmpty) {
@@ -57,7 +56,7 @@ final class PartitionConsumer[A, N](nrPartitions: Int, overflowStrategy: Overflo
       }
 
       pub
-        .filter(x => N.rem(partition(x), nrPartitionsN) == part)
+        .filter(x => partition(parts, x) == part)
         .bufferIntrospective(s.executionModel.recommendedBatchSize)
         .subscribe(consumerSubscriber(refCount.acquire()))
     }
@@ -65,12 +64,14 @@ final class PartitionConsumer[A, N](nrPartitions: Int, overflowStrategy: Overflo
     val out = new Subscriber[A] {
       implicit def scheduler: Scheduler = s
 
-      def onNext(elem: A) = obs.onNext(elem)
-      def onError(ex: Throwable) = obs.onError(ex)
-      def onComplete() = obs.onComplete()
+      def onNext(elem: A): Future[Ack] = publishSubject.onNext(elem)
+
+      def onError(ex: Throwable): Unit = publishSubject.onError(ex)
+
+      def onComplete(): Unit = publishSubject.onComplete()
     }
 
-    (0 until nrPartitions).foreach(subscriber)
+    0.until(parts).foreach(subscriber)
 
     out -> AssignableCancelable.dummy
   }
@@ -78,6 +79,6 @@ final class PartitionConsumer[A, N](nrPartitions: Int, overflowStrategy: Overflo
 
 object PartitionConsumer {
 
-  def partitionConsume[A, N: Integral](nrPartitions: Int, overflowStrategy: OverflowStrategy.Synchronous[A], partition: A => N)(consumer: (Int, Seq[A]) => Future[Ack]): Consumer[A, Unit] =
-    new PartitionConsumer(nrPartitions, overflowStrategy, partition, consumer)
+  def partitionConsume[A](parts: Int, overflowStrategy: OverflowStrategy.Synchronous[A], partition: (Int, A) => Int)(consumer: (Int, Seq[A]) => Future[Ack]): Consumer[A, Unit] =
+    new PartitionConsumer(parts, overflowStrategy, partition, consumer)
 }

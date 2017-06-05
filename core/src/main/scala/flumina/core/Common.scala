@@ -53,7 +53,7 @@ object KafkaResult {
   case object InvalidRequest extends KafkaResult
   case object UnsupportedForMessageFormat extends KafkaResult
 
-  def canRetry(result: KafkaResult) = result match {
+  def canRetry(result: KafkaResult): Boolean = result match {
     case InvalidMessage |
       UnknownTopicOrPartition |
       LeaderNotAvailable |

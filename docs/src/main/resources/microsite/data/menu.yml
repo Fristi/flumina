@@ -1,7 +1,13 @@
 options:
 
-  - title: How to Learn
+  - title: Getting started
     url: docs/index.html
 
-  - title: Hello World
-    url: docs/hello-world.html
+  - title: Type-classes
+    url: docs/typeclasses.html
+
+  - title: Configuration
+    url: docs/configuration.html
+
+  - title: Monix integration
+    url: docs/monix.html

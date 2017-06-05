@@ -1,7 +1,12 @@
 import com.typesafe.sbt.SbtScalariform.ScalariformKeys
 import sbt.Keys._
+import sbt.addCompilerPlugin
 
 import scala.xml.transform.{RewriteRule, RuleTransformer}
+
+val akkaVersion = "2.5.2"
+val catsVersion = "0.9.0"
+val monixVersion = "2.2.4"
 
 val removeScoverage = new RuleTransformer(
   new RewriteRule {
@@ -60,29 +65,30 @@ val commonSettings = Seq(
   ),
   pomPostProcess := { (node: xml.Node) => removeScoverage.transform(node).head },
   resolvers += Resolver.sonatypeRepo("releases"),
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
+  resolvers += "Confluent Repo" at "http://packages.confluent.io/maven",
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4")
 )
 
 val codeQualitySettings = Seq(
-  wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.StringPlusAny, Wart.NoNeedForMonad, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
+  wartremoverErrors in (Compile, compile) ++= Warts.allBut(Wart.DefaultArguments, Wart.StringPlusAny, Wart.Recursion, Wart.ArrayEquals, Wart.ImplicitParameter, Wart.Equals, Wart.Any, Wart.AsInstanceOf, Wart.IsInstanceOf, Wart.Nothing, Wart.Throw, Wart.NonUnitStatements),
   wartremoverErrors in (Test, compile) := Seq(),
   ScalariformKeys.preferences := Settings.commonFormattingPreferences
 ) ++ scalariformSettings
 
 val codeProjectSettings = commonSettings ++ codeQualitySettings
 
-
 lazy val core = project.in(file("core"))
   .settings(codeProjectSettings)
   .settings(
       name := "flumina-core",
       libraryDependencies ++= Seq(
-        "org.typelevel" %% "cats-free" % "0.8.1",
+        "org.typelevel" %% "cats-free" % catsVersion,
         "org.scodec" %% "scodec-core" % "1.10.3",
         "org.scodec" %% "scodec-bits" % "1.1.2",
         "org.xerial.snappy" % "snappy-java" % "1.1.2.6"
       )
   )
+
 
 lazy val akka = project.in(file("akka"))
   .settings(codeProjectSettings)
@@ -90,8 +96,19 @@ lazy val akka = project.in(file("akka"))
       name := "flumina-akka",
       libraryDependencies ++= Seq(
           "com.github.melrief" %% "pureconfig" % "0.6.0",
-          "com.typesafe.akka" %% "akka-actor" % "2.4.13"
+          "com.typesafe.akka" %% "akka-actor" % akkaVersion
       )
+  ).dependsOn(core)
+
+
+lazy val avro4s = project.in(file("avro4s"))
+  .settings(codeProjectSettings)
+  .settings(
+    name := "flumina-avro4s",
+    libraryDependencies ++= Seq(
+      "io.confluent" % "kafka-schema-registry-client" % "3.2.1",
+      "com.sksamuel.avro4s" %% "avro4s-core" % "1.6.4"
+    )
   ).dependsOn(core)
 
 
@@ -101,7 +118,8 @@ lazy val monix = project.in(file("monix"))
     name := "flumina-monix",
     parallelExecution in Test := false,
     libraryDependencies ++= Seq(
-      "io.monix" %% "monix" % "2.1.0"
+      "io.monix" %% "monix" % monixVersion,
+      "io.monix" %% "monix-cats" % monixVersion
     )
 ).dependsOn(akka)
 
@@ -109,28 +127,18 @@ lazy val docs = project
   .in(file("docs"))
   .settings(doNotPublishArtifact)
   .settings(commonSettings)
-  .dependsOn(core, akka, monix)
+  .dependsOn(core, akka, monix, avro4s)
   .enablePlugins(MicrositesPlugin)
   .settings(name := "flumina-docs")
   .settings(
     micrositeName             := "Flumina",
-    micrositeDescription      := "Kafka driver written in pure Scala.",
+    micrositeDescription      := "Scala Kafka client",
     micrositeAuthor           := "Mark de Jong",
     micrositeGithubOwner      := "vectos",
     micrositeGithubRepo       := "flumina",
     micrositeBaseUrl          := "/flumina",
     micrositeDocumentationUrl := "/flumina/docs/",
     micrositeHighlightTheme   := "color-brewer"
-//    micrositePalette := Map(
-//      "brand-primary"     -> "#0B6E0B",
-//      "brand-secondary"   -> "#084D08",
-//      "brand-tertiary"    -> "#053605",
-//      "gray-dark"         -> "#453E46",
-//      "gray"              -> "#837F84",
-//      "gray-light"        -> "#E3E2E3",
-//      "gray-lighter"      -> "#F4F3F4",
-//      "white-color"       -> "#FFFFFF"
-//    )
   )
 
 lazy val tests = project.in(file("tests"))
@@ -141,20 +149,19 @@ lazy val tests = project.in(file("tests"))
     parallelExecution in Test := false,
     coverageMinimum := 80,
     coverageFailOnMinimum := false,
+    wartremoverErrors in (Test, compile) := Seq(),
     libraryDependencies ++= Seq(
-      "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
-      "de.heikoseeberger" %% "akka-log4j" % "1.2.0" % "test",
-      "org.apache.logging.log4j" % "log4j-core" % "2.6" % "test",
-      "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.6" % "test",
-      "org.slf4j" % "slf4j-log4j12" % "1.7.21" % "test",
-      "org.slf4j" % "jcl-over-slf4j" % "1.7.12" % "test",
-      "com.typesafe.akka" %% "akka-testkit" % "2.4.13" % "test",
-      "com.ironcorelabs" %% "cats-scalatest" % "2.1.1" % "test",
-      "com.spotify" % "docker-client" % "3.5.12" % "test",
-      "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.0" % "test",
-      "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.0" % "test",
-      "org.rocksdb" % "rocksdbjni" % "4.11.2" % "test",
-      "io.monix" %% "monix-cats" % "2.1.0" % "test"
+      "com.github.alexarchambault" %% "scalacheck-shapeless_1.13" % "1.1.5" % Test,
+      "org.typelevel" %% "cats-laws" % catsVersion % Test,
+      "org.typelevel" %% "cats-kernel-laws" % catsVersion % Test,
+      "com.ironcorelabs" %% "cats-scalatest" % "2.2.0" % Test,
+      "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
+      "com.spotify" % "docker-client" % "3.5.13" % Test,
+      "com.fasterxml.jackson.jaxrs" % "jackson-jaxrs-json-provider" % "2.6.7" % Test,
+      "com.fasterxml.jackson.core" % "jackson-databind" % "2.6.7" % Test
     )
 )
-.dependsOn(monix)
+.dependsOn(monix, avro4s)
+
+
+addCommandAlias("validate", "; clean; tests/test; docs/makeMicrosite")

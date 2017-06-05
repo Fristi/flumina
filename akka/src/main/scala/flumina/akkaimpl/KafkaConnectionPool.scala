@@ -22,15 +22,15 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
   private def append(stashedRequest: StashedRequest, stashedRequestsBuffer: List[StashedRequest]) =
     stashedRequest :: stashedRequestsBuffer.take(999)
 
-  def randomNode(nodes: Set[ActorRef]) =
+  private def randomNode(nodes: Set[ActorRef]) =
     if (nodes.nonEmpty) Some(nodes.iterator.drop(Random.nextInt(nodes.size)).next())
     else None
 
-  def randomBroker(connections: Map[KafkaBroker.Node, Set[ActorRef]]) =
+  private def randomBroker(connections: Map[KafkaBroker.Node, Set[ActorRef]]) =
     if (connections.nonEmpty) Some(connections.iterator.drop(Random.nextInt(connections.size)).next())
     else None
 
-  def running(connectionsBeingSpawned: Set[KafkaBroker.Node], stashedRequestsBuffer: List[StashedRequest], connections: Map[KafkaBroker.Node, Set[ActorRef]]): Actor.Receive = {
+  private def running(connectionsBeingSpawned: Set[KafkaBroker.Node], stashedRequestsBuffer: List[StashedRequest], connections: Map[KafkaBroker.Node, Set[ActorRef]]): Actor.Receive = {
 
     case kafkaBrokerRequest @ KafkaBrokerRequest(KafkaBroker.AnyNode, request) =>
       if (connections.isEmpty) {
@@ -69,7 +69,7 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
       context.become(running(connectionsBeingSpawned, stashedRequestsBuffer, connections.updatedValue(node, Set())(_ - connection)))
   }
 
-  def receive = running(
+  def receive: Receive = running(
     connectionsBeingSpawned = bootstrapBrokers.toSet,
     stashedRequestsBuffer = Nil,
     connections = Map()
@@ -79,18 +79,18 @@ final class KafkaConnectionPool private (bootstrapBrokers: Seq[KafkaBroker.Node]
     s"$nr:${broker.host}:${broker.port}"
 
   private def spawnConnections(broker: KafkaBroker.Node): Unit = {
-    log.info(s"Spawning $connectionsPerBroker connections for $broker")
+    log.debug(s"Spawning $connectionsPerBroker connections for $broker")
     (1 to connectionsPerBroker) foreach { i => context.actorOf(propsConn(broker), connId(broker, i)) }
   }
 
-  override def preStart() = bootstrapBrokers.foreach(spawnConnections)
+  override def preStart(): Unit = bootstrapBrokers.foreach(spawnConnections)
 
-  def propsConn(broker: KafkaBroker.Node) =
+  private def propsConn(broker: KafkaBroker.Node) =
     KafkaConnection.props(self, manager, broker, retryStrategy)
 }
 
 object KafkaConnectionPool {
-  def props(bootstrapBrokers: Seq[KafkaBroker.Node], connectionsPerBroker: Int) =
+  def props(bootstrapBrokers: Seq[KafkaBroker.Node], connectionsPerBroker: Int): Props =
     Props(new KafkaConnectionPool(bootstrapBrokers, connectionsPerBroker))
 
   final case class BrokerUp(connection: ActorRef, node: KafkaBroker.Node)

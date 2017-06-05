@@ -45,9 +45,9 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
 
   private def currentOffset = storageOffset + writeBuffer.size
 
-  override def preStart() = connect()
+  override def preStart(): Unit = connect()
 
-  def reconnect(timesTriedToConnect: Int) = {
+  private def reconnect(timesTriedToConnect: Int) = {
     retryStrategy.nextDelay(timesTriedToConnect) match {
       case Some(duration) =>
         log.info(s"Will retry to reconnect in: $duration")
@@ -61,12 +61,12 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     }
   }
 
-  def connect() = {
+  private def connect() = {
     log.debug(s"Connecting to $broker")
     manager ! Tcp.Connect(new InetSocketAddress("localhost", broker.port))
   }
 
-  def connecting(timesTriedToConnect: Int): Actor.Receive = {
+  private def connecting(timesTriedToConnect: Int): Actor.Receive = {
     case CommandFailed(_) =>
       context.become(connecting(timesTriedToConnect + 1))
       reconnect(timesTriedToConnect + 1)
@@ -78,7 +78,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
       context.become(connected)
   }
 
-  def buffer(data: ByteString): Unit = {
+  private def buffer(data: ByteString): Unit = {
     writeBuffer :+= data
     stored += data.size
 
@@ -88,7 +88,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     }
   }
 
-  def acknowledge(ack: Int) = {
+  private def acknowledge(ack: Int) = {
     require(ack === storageOffset, s"received ack $ack at $storageOffset")
     require(writeBuffer.nonEmpty, s"writeBuffer was empty at ack $ack")
 
@@ -99,7 +99,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     writeBuffer = writeBuffer drop 1
   }
 
-  def read(data: ByteString) = {
+  private def read(data: ByteString) = {
 
     def decode(buffer: ByteString) = {
       decodeEnvelope(buffer) match {
@@ -159,14 +159,14 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     }
   }
 
-  def goReconnect() = {
+  private def goReconnect() = {
     //TODO: reset all state?
     pool ! KafkaConnectionPool.BrokerDown(self, broker)
     context.become(connecting(0))
     reconnect(0)
   }
 
-  def connected: Actor.Receive = {
+  private def connected: Actor.Receive = {
     case request: KafkaConnectionRequest =>
       encodeEnvelope(nextCorrelationId, request) match {
         case Attempt.Successful(msg) =>
@@ -195,7 +195,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
 
   }
 
-  def buffering(nack: Int, toAck: Int, peerClosed: Boolean): Actor.Receive = {
+  private def buffering(nack: Int, toAck: Int, peerClosed: Boolean): Actor.Receive = {
     case request: KafkaConnectionRequest =>
       encodeEnvelope(nextCorrelationId, request) match {
         case Attempt.Successful(msg) =>
@@ -232,7 +232,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
       else context become connected
   }
 
-  def closing: Actor.Receive = {
+  private def closing: Actor.Receive = {
     case CommandFailed(_: Write) =>
       connection ! ResumeWriting
       context.become({
@@ -250,7 +250,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
       if (writeBuffer.isEmpty) context stop self
   }
 
-  def receive = connecting(timesTriedToConnect = 0)
+  def receive: Receive = connecting(timesTriedToConnect = 0)
 
   private val bigEndianDecoder: (ByteIterator, Int) ⇒ Int = (bs, length) ⇒ {
     @tailrec
@@ -265,7 +265,7 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     run(length, 0)
   }
 
-  def encodeEnvelope(correlationId: Int, request: KafkaConnectionRequest) = {
+  private def encodeEnvelope(correlationId: Int, request: KafkaConnectionRequest) = {
     RequestEnvelope.codec.encode(RequestEnvelope(request.apiKey, request.version, correlationId, Some("flumina"), request.requestPayload)).map { bytes =>
 
       val msg = bytes.toByteString
@@ -276,9 +276,10 @@ final class KafkaConnection private (pool: ActorRef, manager: ActorRef, broker: 
     }
   }
 
-  def decodeEnvelope(byteString: ByteString) = ResponseEnvelope.codec.decodeValue(byteString.toBitVector)
+  private def decodeEnvelope(byteString: ByteString) = ResponseEnvelope.codec.decodeValue(byteString.toBitVector)
 }
 
 object KafkaConnection {
-  def props(pool: ActorRef, manager: ActorRef, broker: KafkaBroker.Node, retryStrategy: KafkaConnectionRetryStrategy) = Props(new KafkaConnection(pool, manager, broker, retryStrategy))
+  def props(pool: ActorRef, manager: ActorRef, broker: KafkaBroker.Node, retryStrategy: KafkaConnectionRetryStrategy): Props =
+    Props(new KafkaConnection(pool, manager, broker, retryStrategy))
 }

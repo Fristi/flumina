@@ -14,7 +14,7 @@ object KafkaA {
   final case class DescribeGroups(groupIds: Traversable[String]) extends KafkaA[Seq[Group]]
   final case class SynchronizeGroup(groupId: String, generationId: Int, memberId: String, assignments: Seq[GroupAssignment]) extends KafkaA[Either[KafkaResult, MemberAssignment]]
   final case class Heartbeat(groupId: String, generationId: Int, memberId: String) extends KafkaA[Either[KafkaResult, Unit]]
-  final case class Fetch(values: Traversable[TopicPartitionValue[Long]]) extends KafkaA[TopicPartitionValues[List[RecordEntry]]]
+  final case class Fetch(values: Traversable[TopicPartitionValue[Long]]) extends KafkaA[TopicPartitionValues[OffsetValue[Record]]]
   final case class LeaveGroup(groupId: String, memberId: String) extends KafkaA[Either[KafkaResult, Unit]]
   final case class GroupCoordinator(groupId: String) extends KafkaA[Either[KafkaResult, Broker]]
   final case class GetMetadata(topics: Traversable[String]) extends KafkaA[Metadata]
@@ -43,7 +43,7 @@ object kafka {
   def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]): Free[KafkaA, TopicPartitionValues[Long]] =
     Free.liftF(KafkaA.ProduceN(compression, values))
 
-  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]): Free[KafkaA, TopicPartitionValues[List[RecordEntry]]] =
+  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]): Free[KafkaA, TopicPartitionValues[OffsetValue[Record]]] =
     Free.liftF(KafkaA.Fetch(topicPartitionOffsets))
 
   def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]): Free[KafkaA, TopicPartitionValues[OffsetMetadata]] =

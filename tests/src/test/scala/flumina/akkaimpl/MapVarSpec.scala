@@ -4,7 +4,7 @@ import akka.actor.ActorSystem
 import akka.util.Timeout
 import cats.implicits._
 import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.{Matchers, Suite, WordSpecLike}
+import org.scalatest.{ Matchers, Suite, WordSpecLike }
 
 import scala.concurrent.Future
 import scala.concurrent.duration._

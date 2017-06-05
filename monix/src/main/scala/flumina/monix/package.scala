@@ -2,47 +2,65 @@ package flumina
 
 import _root_.monix.execution._
 import _root_.monix.reactive._
+import cats.{Monad, Traverse}
+import cats.implicits._
 import flumina.akkaimpl.KafkaClient
 import flumina.core.ir._
+import scodec.Attempt
 
 import scala.concurrent.ExecutionContext
-import scala.math.Integral
 
 package object monix {
 
   implicit class RichKafkaClient(val kafkaClient: KafkaClient) {
 
-    def produce[R, N: Integral](topic: String, nrPartitions: Int, buffer: OverflowStrategy.Synchronous[R], toRecord: R => Record, partition: R => N, compression: Compression)(implicit EC: ExecutionContext): Consumer[R, Unit] = {
-      PartitionConsumer.partitionConsume[R, N](nrPartitions, buffer, partition) {
+    def produce[R](
+      topic:             String,
+      nrPartitions:      Int,
+      codecErrorHandler: CodecErrorHandler               = CodecErrorHandler.stop,
+      buffer:            OverflowStrategy.Synchronous[R] = OverflowStrategy.Unbounded,
+      compression:       Compression                     = Compression.Snappy)(implicit EC: ExecutionContext, P: KafkaPartitioner[R], E: KafkaEncoder[R]): Consumer[R, Unit] = {
+      PartitionConsumer.partitionConsume[R](nrPartitions, buffer, { case (nrPartitions, value) => P.selectPartition(value, nrPartitions) }) {
         case (part, elems) =>
-          kafkaClient.produceN(compression, elems.map(r => TopicPartitionValue(TopicPartition(topic, part), toRecord(r)))) flatMap {
-            case TopicPartitionValues(errs, _) if errs.nonEmpty => Ack.Stop
-            case _                                              => Ack.Continue
+          elems.toList.traverse[Attempt, TopicPartitionValue[Record]](r => E.encode(r).map(rr => TopicPartitionValue(TopicPartition(topic, part), rr))) match {
+            case Attempt.Successful(records) =>
+              kafkaClient.produceN(compression, records).flatMap {
+                case TopicPartitionValues(errs, _) if errs.nonEmpty => Ack.Stop
+                case _                                              => Ack.Continue
+              }
+
+            case Attempt.Failure(err) => codecErrorHandler.handle(err)
           }
       }
     }
 
-    def consume(topic: String, consumptionStrategy: ConsumptionStrategy, offsetStore: OffsetStore)(implicit S: Scheduler): Observable[TopicPartitionValue[RecordEntry]] = {
+    def messages[A](
+      topic:               String,
+      consumptionStrategy: ConsumptionStrategy,
+      codecErrorHandler:   CodecErrorHandler   = CodecErrorHandler.stop)(implicit S: Scheduler, D: KafkaDecoder[A]): Observable[TopicPartitionValue[OffsetValue[A]]] = {
 
-      def offsets(metadata: Metadata, offsets: Vector[TopicPartitionValue[Long]]): Observable[TopicPartitionValue[RecordEntry]] = {
-        val brokerOffsets = (0 until metadata.topics.size).map { s =>
-          val topicPartition = TopicPartition(topic, s)
-          val offset = offsets.find(_.topicPartition == topicPartition).map(_.result).getOrElse(0l)
-
-          TopicPartitionValue(topicPartition, offset)
-        }
-        val sources = brokerOffsets.map(tp => new TopicConsumer(kafkaClient, tp, consumptionStrategy, offsetStore))
-
-        Observable.merge(sources: _*)
+      def sources(metadata: Metadata): Observable[TopicPartitionValue[OffsetValue[A]]] = {
+        Observable.merge(
+          metadata.topics.toSeq.map(tp => new TopicConsumer(kafkaClient, tp.topicPartition, 0l, consumptionStrategy, codecErrorHandler)): _*)
       }
 
       for {
-        currentOffsets <- Observable.fromTask(offsetStore.load(topic))
         metadata <- Observable.fromFuture(kafkaClient.metadata(Set(topic)))
-        entry <- offsets(metadata, currentOffsets)
+        entry <- sources(metadata)
       } yield entry
     }
-
   }
+
+  implicit val monadAttempt: Monad[Attempt] = new Monad[Attempt] {
+    override def flatMap[A, B](fa: Attempt[A])(f: (A) => Attempt[B]): Attempt[B] = fa.flatMap(f)
+
+    override def tailRecM[A, B](a: A)(f: (A) => Attempt[Either[A, B]]): Attempt[B] = f(a).flatMap {
+      case Left(v)  => tailRecM(v)(f)
+      case Right(v) => pure(v)
+    }
+
+    override def pure[A](x: A): Attempt[A] = Attempt.successful(x)
+  }
+
 }
 

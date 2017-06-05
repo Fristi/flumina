@@ -16,7 +16,7 @@ final class KafkaClient private (settings: KafkaSettings)(implicit S: ActorSyste
 
   private val int = new AkkaInterpreter(settings)
 
-  def run[A](kafka: Free[KafkaA, A]) = kafka.foldMap(int)
+  def run[A](kafka: Free[KafkaA, A]): Future[A] = kafka.foldMap(int)
 
   def createTopics(topics: Set[TopicDescriptor]): Future[List[TopicResult]] =
     int(KafkaA.CreateTopics(topics))
@@ -36,7 +36,7 @@ final class KafkaClient private (settings: KafkaSettings)(implicit S: ActorSyste
   def produceN(compression: Compression, values: Seq[TopicPartitionValue[Record]]): Future[TopicPartitionValues[Long]] =
     int(KafkaA.ProduceN(compression, values))
 
-  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]): Future[TopicPartitionValues[List[RecordEntry]]] =
+  def fetch(topicPartitionOffsets: Set[TopicPartitionValue[Long]]): Future[TopicPartitionValues[OffsetValue[Record]]] =
     int(KafkaA.Fetch(topicPartitionOffsets))
 
   def offsetFetch(groupId: String, topicPartitions: Set[TopicPartition]): Future[TopicPartitionValues[OffsetMetadata]] =

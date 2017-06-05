@@ -30,7 +30,7 @@ object KafkaBroker {
 final case class KafkaConnectionRequest(apiKey: Int, version: Int, requestPayload: BitVector, trace: Boolean)
 
 final case class KafkaBrokerRequest(broker: KafkaBroker, request: KafkaConnectionRequest) {
-  def matchesBroker(other: KafkaBroker) = broker match {
+  def matchesBroker(other: KafkaBroker): Boolean = broker match {
     case KafkaBroker.AnyNode               => true
     case n: KafkaBroker if n.equals(other) => true
     case _                                 => false

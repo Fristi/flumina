@@ -26,10 +26,10 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
       subscriptions.map(x => x.updateSubset(subset))
 
     private case class Subscription(update: Map[K, Cell[V]], subscriber: ActorRef) {
-      def updateSubset(subset: Map[K, Cell[V]]) =
+      def updateSubset(subset: Map[K, Cell[V]]): Subscription =
         copy(update = update ++ subset.filterKeys(update.keySet))
 
-      def isComplete = update.values.forall {
+      def isComplete: Boolean = update.values.forall {
         case Cell.Success(_)           => true
         case Cell.Failed(_)            => true
         case Cell.Empty | Cell.Pending => false
@@ -38,7 +38,7 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
       def subset: Map[K, V] = update.flatMap { case (k, v) => Cell.toOption(v).map(k -> _).toList }
     }
 
-    def active(current: Map[K, Option[V]], subscriptions: List[Subscription]): Receive = {
+    private def active(current: Map[K, Option[V]], subscriptions: List[Subscription]): Receive = {
 
       case UpdateSubset(keys, updater) =>
 
@@ -106,7 +106,7 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
       case Get => sender() ! currentMap(current)
     }
 
-    def receive = active(initial.mapValues(Option.apply), List.empty)
+    def receive: Receive = active(initial.mapValues(Option.apply), List.empty)
   }
 
   private case class UpdateSubset(keys: Set[K], updater: Set[K] => Future[List[(K, Option[V])]])
@@ -120,7 +120,7 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
   def getOrElseUpdate(key: K, orElse: K => Future[Option[V]])(implicit EC: ExecutionContext): Future[Option[V]] =
     handler.ask(GetOrElseSingle(key, orElse)).mapTo[Map[K, V]].map(_.get(key))
 
-  def getSubsetOrElseUpdate(keys: Set[K], orElse: Set[K] => Future[List[(K, Option[V])]]) =
+  def getSubsetOrElseUpdate(keys: Set[K], orElse: Set[K] => Future[List[(K, Option[V])]]): Future[Map[K, V]] =
     handler.ask(GetOrElseBatch(keys, orElse)).mapTo[Map[K, V]]
 
   def updateSubset(keys: Set[K], updater: Set[K] => Future[List[(K, Option[V])]]): Future[Map[K, V]] =
@@ -130,7 +130,7 @@ final class MapVar[K, V](initial: Map[K, V], update: (Map[K, Cell[V]], K, Cell[V
 }
 
 object MapVar {
-  def apply[K, V](initial: Map[K, V])(update: (Map[K, Cell[V]], K, Cell[V]) => Map[K, Cell[V]])(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext) =
+  def apply[K, V](initial: Map[K, V])(update: (Map[K, Cell[V]], K, Cell[V]) => Map[K, Cell[V]])(implicit S: ActorSystem, T: Timeout, EC: ExecutionContext): MapVar[K, V] =
     new MapVar(initial, update)
 
   object updates {
@@ -147,7 +147,7 @@ final class UVar[A: ClassTag] private (initial: A)(implicit S: ActorSystem, T: T
   private final class Handler extends Actor {
     import context.dispatcher
 
-    def updating(listeners: Seq[ActorRef]): Receive = {
+    private def updating(listeners: Seq[ActorRef]): Receive = {
       case Get       => context.become(updating(listeners :+ sender()))
       case Update(_) => context.become(updating(listeners :+ sender()))
       case value: A =>
@@ -155,7 +155,7 @@ final class UVar[A: ClassTag] private (initial: A)(implicit S: ActorSystem, T: T
         context.become(active(value))
     }
 
-    def active(value: A): Receive = {
+    private def active(value: A): Receive = {
       case Get => sender() ! value
       case Update(update) =>
         update(value) pipeTo self
@@ -175,7 +175,7 @@ final class UVar[A: ClassTag] private (initial: A)(implicit S: ActorSystem, T: T
 }
 
 object UVar {
-  def apply[A: ClassTag](initial: A)(implicit S: ActorSystem, T: Timeout) = new UVar(initial)
+  def apply[A: ClassTag](initial: A)(implicit S: ActorSystem, T: Timeout): UVar[A] = new UVar(initial)
 }
 
 sealed trait Cell[+A]
@@ -186,7 +186,7 @@ object Cell {
   final case class Failed(err: Throwable) extends Cell[Nothing]
   final case class Success[A](value: Option[A]) extends Cell[A]
 
-  def toOption[A](cell: Cell[A]) = cell match {
+  def toOption[A](cell: Cell[A]): Option[A] = cell match {
     case Empty | Pending => None
     case Failed(_)       => None
     case Success(v)      => v

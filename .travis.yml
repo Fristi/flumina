@@ -1,26 +1,15 @@
 language: scala
 sudo: required
-cache:
-  directories:
-    - $HOME/.ivy2/cache
-    - $HOME/.sbt/boot/
-script:
-#  - find $HOME/.sbt -name "*.lock" | xargs rm
-#  - find $HOME/.ivy2 -name "ivydata-*.properties" | xargs rm
-  - sbt coverage test coverageReport && sbt coverageAggregate
-  - '[ "${TRAVIS_PULL_REQUEST}" = "false" ] && sbt updateImpactSubmit || true'
-after_success:
-  - sbt coveralls
-  - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash scripts/publish-microsite.sh; fi
-  - if [ "$TRAVIS_PULL_REQUEST" = "true" ]; then echo "Not in master branch, skipping deploy and release"; fi
 scala:
-   - 2.12.1
+   - 2.12.2
 jdk:
    - oraclejdk8
 services:
   - docker
 env:
   DOCKER_COMPOSE_VERSION: 1.8.0
+
+
 before_install:
   - sudo apt-get update -qq
   - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew install docker-engine
@@ -37,3 +26,37 @@ install:
   - gem update --system
   - gem install sass
   - gem install jekyll -v 3.2.1
+
+script:
+  - sbt coverage test coverageReport coverageAggregate
+  - docker-compose up -d
+  - sbt "docs/makeMicrosite"
+after_success:
+  - sbt coveralls
+  - if [ "$TRAVIS_BRANCH" = "master" -a "$TRAVIS_PULL_REQUEST" = "false" ]; then bash scripts/publish-microsite.sh; fi
+  - if [ "$TRAVIS_PULL_REQUEST" = "true" ]; then echo "Not in master branch, skipping deploy and release"; fi
+
+after_script:
+  - docker-compose down
+  - docker-compose rm -f
+
+
+
+
+
+before_cache:
+- du -h -d 1 $HOME/.ivy2/
+- du -h -d 2 $HOME/.sbt/
+- du -h -d 4 $HOME/.coursier/
+- find $HOME/.sbt -name "*.lock" -type f -delete
+- find $HOME/.ivy2/cache -name "ivydata-*.properties" -type f -delete
+- find $HOME/.coursier/cache -name "*.lock" -type f -delete
+cache:
+  bundler: true
+  directories:
+  - $HOME/.sbt/0.13
+  - $HOME/.sbt/boot/scala*
+  - $HOME/.sbt/cache
+  - $HOME/.sbt/launchers
+  - $HOME/.ivy2/cache
+  - $HOME/.coursier

@@ -132,11 +132,12 @@ object MessageSetCodec {
           compressionType match {
             case Compression.GZIP   => GZipCompression.inflate(v) flatMap decodeCompressed(Compression.GZIP)
             case Compression.Snappy => SnappyCompression.inflate(v) flatMap decodeCompressed(Compression.Snappy)
+            case _                  => sys.error("Impossible?")
           }
       }
     }
 
-    def encodeMessage(msg: Message) = {
+    private def encodeMessage(msg: Message) = {
 
       def mkTime(timeStamp: Option[TimeData]): (Boolean, Option[Date]) = {
         val timeFlag = timeStamp.exists {
@@ -161,6 +162,7 @@ object MessageSetCodec {
             cm.compression match {
               case Compression.GZIP   => encodeCompressed(cm.messages).flatMap(GZipCompression.deflate)
               case Compression.Snappy => encodeCompressed(cm.messages).flatMap(SnappyCompression.deflate)
+              case _                  => sys.error("Impossible?")
             }
 
           val (timeFlag, time) = mkTime(cm.timeStamp)

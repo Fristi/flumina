@@ -23,23 +23,23 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
   private val byTopic = MapVar(Map.empty[String, Map[Int, KafkaBroker]])(MapVar.updates.appendAndOmit)
   private val byGroup = MapVar(Map.empty[String, KafkaBroker])(MapVar.updates.appendAndOmit)
 
-  def runWithBroker[A](dsl: KafkaA[A], broker: KafkaBroker) = int(dsl).run(defaultContext.copy(broker = broker))
+  private def runWithBroker[A](dsl: KafkaA[A], broker: KafkaBroker) = int(dsl).run(defaultContext.copy(broker = broker))
 
   private val retryCount = defaultContext.settings.retryMaxCount
   private val retryBackoff = defaultContext.settings.retryBackoff
 
-  def getController = controller.update {
+  private def getController = controller.update {
     case None    => getMetadata(Seq.empty).map(x => Option(KafkaBroker.Node(x.controller.host, x.controller.port)))
     case Some(b) => Future.successful(Option(b))
   } flatMap {
     _.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful)
   }
 
-  def updateController = controller
+  private def updateController = controller
     .update(_ => getMetadata(Seq.empty).map(x => Option(KafkaBroker.Node(x.controller.host, x.controller.port))))
     .flatMap(_.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful))
 
-  def runEitherCall[A](broker: KafkaBroker, dsl: KafkaA[KafkaResult Either A]) = {
+  private def runEitherCall[A](broker: KafkaBroker, dsl: KafkaA[KafkaResult Either A]) = {
     def run(tries: Int, lastError: KafkaResult): Future[KafkaResult Either A] = {
       if (tries < retryCount) {
         for {
@@ -61,22 +61,22 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
     run(0, KafkaResult.NoError)
   }
 
-  def runGroupCall[A](groupId: String, dsl: KafkaA[A]) =
+  private def runGroupCall[A](groupId: String, dsl: KafkaA[A]) =
     for {
       broker <- getBrokerByGroupId(groupId)
       result <- runWithBroker(dsl, broker)
     } yield result
 
-  def runGroupEitherCall[A](groupId: String, dsl: KafkaA[KafkaResult Either A]) =
+  private def runGroupEitherCall[A](groupId: String, dsl: KafkaA[KafkaResult Either A]) =
     for {
       broker <- getBrokerByGroupId(groupId)
       result <- runEitherCall(broker, dsl)
     } yield result
 
-  def runTopicPartitionValues[I, O](
+  private def runTopicPartitionValues[I, O](
     initialRequest: Traversable[TopicPartitionValue[I]],
     prg:            Traversable[TopicPartitionValue[I]] => KafkaA[TopicPartitionValues[O]]
-  ) = {
+  ): Future[TopicPartitionValues[O]] = {
     def split[A](brokerMap: Map[String, Map[Int, KafkaBroker]], values: Traversable[TopicPartitionValue[A]]): Map[KafkaBroker, Traversable[TopicPartitionValue[A]]] = {
 
       def getBroker(topicPartition: TopicPartition) = (for {
@@ -118,7 +118,7 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
     byTopic.get.flatMap(brokerMap => Monoid.combineAll(split(brokerMap, initialRequest).map { case (broker, values) => run(0)(broker, values) }))
   }
 
-  def updateTopics(topics: Set[String]): Future[Map[String, Map[Int, KafkaBroker]]] = {
+  private def updateTopics(topics: Set[String]): Future[Map[String, Map[Int, KafkaBroker]]] = {
 
     def metadataBroker(broker: KafkaBroker, topicsToUpdate: Set[String]) =
       runWithBroker(KafkaA.GetMetadata(topicsToUpdate), broker)
@@ -137,18 +137,18 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
     byTopic.updateSubset(topics, topicsToUpdate => getController.flatMap(controller => metadataBroker(controller, topicsToUpdate)))
   }
 
-  def groupCoordinator(groupId: String) =
+  private def groupCoordinator(groupId: String) =
     runEitherCall(defaultContext.broker, KafkaA.GroupCoordinator(groupId))
       .map(_.toOption.map(b => KafkaBroker.Node(b.host, b.port)))
 
-  def getBrokerByGroupId(groupId: String) =
+  private def getBrokerByGroupId(groupId: String) =
     byGroup.getOrElseUpdate(groupId, groupCoordinator)
       .flatMap(_.fold[Future[KafkaBroker]](Future.failed(new Exception("No broker found")))(Future.successful))
 
-  def getMetadata(topics: Traversable[String]) =
+  private def getMetadata(topics: Traversable[String]) =
     runWithBroker(KafkaA.GetMetadata(topics), KafkaBroker.AnyNode)
 
-  def runControllerCall(dsl: KafkaA[List[TopicResult]]) = {
+  private def runControllerCall(dsl: KafkaA[List[TopicResult]]) = {
     def rerun = for {
       newBroker <- updateController
       res <- runWithBroker(dsl, newBroker)
@@ -171,7 +171,7 @@ final class AkkaInterpreter(settings: KafkaSettings)(implicit S: ActorSystem, T:
     case r: KafkaA.SynchronizeGroup => runGroupEitherCall(r.groupId, r)
     case r: KafkaA.LeaveGroup       => runGroupEitherCall(r.groupId, r)
     case r: KafkaA.Heartbeat        => runGroupEitherCall(r.groupId, r)
-    case r: KafkaA.Fetch            => runTopicPartitionValues[Long, List[RecordEntry]](r.values, v => KafkaA.Fetch(v))
+    case r: KafkaA.Fetch            => runTopicPartitionValues[Long, OffsetValue[Record]](r.values, v => KafkaA.Fetch(v))
     case r: KafkaA.GroupCoordinator => runEitherCall(KafkaBroker.AnyNode, KafkaA.GroupCoordinator(r.groupId))
     case r: KafkaA.GetMetadata      => getController.flatMap(b => runWithBroker(r, b))
     case r: KafkaA.CreateTopics     => runControllerCall(r)

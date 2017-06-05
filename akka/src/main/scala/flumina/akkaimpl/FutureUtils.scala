@@ -10,7 +10,7 @@ object FutureUtils {
 
   private val timer = new Timer()
 
-  def delay(duration: FiniteDuration) = {
+  def delay(duration: FiniteDuration): Future[Unit] = {
     val promise = Promise[Unit]()
     val task = new TimerTask {
       def run() = promise.complete(Try(()))
@@ -19,6 +19,7 @@ object FutureUtils {
     promise.future
   }
 
-  def delayFuture[A](duration: FiniteDuration, f: => Future[A])(implicit EC: ExecutionContext): Future[A] = delay(duration).flatMap(_ => f)
+  def delayFuture[A](duration: FiniteDuration, f: => Future[A])(implicit EC: ExecutionContext): Future[A] =
+    delay(duration).flatMap(_ => f)
 
 }
