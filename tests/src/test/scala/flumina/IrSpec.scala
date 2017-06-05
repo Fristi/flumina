@@ -6,8 +6,7 @@ import cats.kernel.laws.GroupLaws
 import cats.laws.discipline.{ ContravariantTests, FunctorTests, InvariantTests, TraverseTests }
 import cats.laws.discipline.arbitrary._
 import cats.laws.discipline.eq._
-import flumina.core.KafkaResult
-import flumina.core.ir._
+import flumina._
 import org.scalacheck.{ Arbitrary, Gen }
 import org.scalatest.FunSuite
 import org.typelevel.discipline.scalatest.Discipline

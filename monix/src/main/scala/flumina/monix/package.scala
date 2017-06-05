@@ -2,10 +2,9 @@ package flumina
 
 import _root_.monix.execution._
 import _root_.monix.reactive._
-import cats.{Monad, Traverse}
+import cats.Monad
 import cats.implicits._
-import flumina.akkaimpl.KafkaClient
-import flumina.core.ir._
+import flumina.client.KafkaClient
 import scodec.Attempt
 
 import scala.concurrent.ExecutionContext

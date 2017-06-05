@@ -10,17 +10,17 @@ title: Monix integration
 First things first, we need some imports
 
 ```tut:silent
-import flumina.akkaimpl._
-import flumina.core.ir._
+import monix.reactive.{Consumer, Observable, OverflowStrategy}
+import monix.execution.Scheduler.Implicits.global
+import flumina._
+import flumina.client._
 import flumina.monix._
 import akka.actor._
 import akka.util._
 import scala.concurrent.{ExecutionContext, Await}
 import scala.concurrent.duration._
-import monix.reactive.{Consumer, Observable, OverflowStrategy}
 import scodec.bits.ByteVector
 import scodec.codecs.uint32
-import monix.execution.Scheduler.Implicits.global
 ```
 
 After that we'll wire up the client just like in the "Getting started" example:
@@ -35,8 +35,7 @@ val topicName = s"topic${System.nanoTime()}"
 val kafkaClient = KafkaClient()
 ```
 
-
-Now we've imported the monix package we access to two new methods `produce` and `consume`.
+## Create a topic
 
 First lets setup a topic:
 
@@ -55,6 +54,8 @@ def createTopic = kafkaClient.createTopics(
 
 Await.result(createTopic, 10.seconds)
 ```
+
+Now we've imported the monix package we access to two new methods `produce` and `messages`.
 
 
 ## Produce to Kafka

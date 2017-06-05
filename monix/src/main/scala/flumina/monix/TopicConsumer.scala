@@ -2,13 +2,13 @@ package flumina.monix
 
 import cats._
 import cats.implicits._
-import flumina.akkaimpl.KafkaClient
-import flumina.core.ir._
-import monix.eval.{Callback, Task}
-import monix.execution.Ack.{Continue, Stop}
-import monix.execution.{Cancelable, Scheduler}
-import monix.reactive.Observable
-import monix.reactive.observers.Subscriber
+import flumina._
+import flumina.client.KafkaClient
+import _root_.monix.eval.{Callback, Task}
+import _root_.monix.execution.Ack.{Continue, Stop}
+import _root_.monix.execution.{Cancelable, Scheduler}
+import _root_.monix.reactive.Observable
+import _root_.monix.reactive.observers.Subscriber
 import scodec.Attempt
 
 private[monix] class TopicConsumer[A](client: KafkaClient, topicPartition: TopicPartition, initialOffset: Long, consumptionStrategy: ConsumptionStrategy, codecErrorHandler: CodecErrorHandler)(implicit S: Scheduler, D: KafkaDecoder[A]) extends Observable[TopicPartitionValue[OffsetValue[A]]] {

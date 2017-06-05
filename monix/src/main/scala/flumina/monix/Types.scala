@@ -1,7 +1,6 @@
 package flumina.monix
 
-import flumina.core.KafkaResult
-import flumina.core.ir.TopicPartitionValue
+import flumina.{KafkaResult, TopicPartitionValue}
 import monix.eval.Task
 import monix.execution.Ack
 import scodec.Err

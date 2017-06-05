@@ -6,8 +6,8 @@ import akka.util.Timeout
 import cats.implicits._
 import cats.scalatest.EitherMatchers
 import com.typesafe.config.ConfigFactory
-import flumina.akkaimpl.KafkaClient
-import flumina.core.ir._
+import flumina.client.KafkaClient
+import flumina._
 import flumina.monix.ConsumptionStrategy
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient
 import org.scalatest._

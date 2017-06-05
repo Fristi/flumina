@@ -48,7 +48,7 @@ For example
 
 ```tut:silent
 
-import flumina.core.ir._
+import flumina._
 import scodec.codecs._
 
 implicit val longCodec: KafkaCodec[Long] = KafkaCodec.fromValueCodec(uint32)
@@ -64,8 +64,8 @@ To use avro4s Kafka codecs with flumina you'll need to bring in the avro4s modul
 To actually use avro4s you'll need to import avro4s:
 
 ```tut:silent
+import flumina._
 import flumina.avro4s._
-import flumina.core.ir._
 import io.confluent.kafka.schemaregistry.client._
 ```
 

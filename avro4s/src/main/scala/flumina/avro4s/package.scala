@@ -3,7 +3,6 @@ package flumina
 import java.io.ByteArrayOutputStream
 
 import com.sksamuel.avro4s._
-import flumina.core.ir.{KafkaCodec, Record}
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient
 import org.apache.avro.generic.{GenericDatumReader, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.{DecoderFactory, EncoderFactory}

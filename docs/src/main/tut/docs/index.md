@@ -10,8 +10,8 @@ title: Getting started
 First things first, we need some imports
 
 ```tut:silent
-import flumina.akkaimpl._
-import flumina.core.ir._
+import flumina._
+import flumina.client._
 import akka.actor.ActorSystem
 import scala.concurrent.{ExecutionContext, Await}
 import scala.concurrent.duration._
