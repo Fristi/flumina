@@ -48,7 +48,7 @@
 <p>For example</p>
 
 <div class="language-scala highlighter-rouge"><pre class="highlight"><code>
-<span class="k">import</span> <span class="nn">flumina.core.ir._</span>
+<span class="k">import</span> <span class="nn">flumina._</span>
 <span class="k">import</span> <span class="nn">scodec.codecs._</span>
 
 <span class="k">implicit</span> <span class="k">val</span> <span class="n">longCodec</span><span class="k">:</span> <span class="kt">KafkaCodec</span><span class="o">[</span><span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="nc">KafkaCodec</span><span class="o">.</span><span class="n">fromValueCodec</span><span class="o">(</span><span class="n">uint32</span><span class="o">)</span>
@@ -64,8 +64,8 @@ A nice way to start playing with kafka and schema-registry is the docker image: 
 
 <p>To actually use avro4s you’ll need to import avro4s:</p>
 
-<div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="k">import</span> <span class="nn">flumina.avro4s._</span>
-<span class="k">import</span> <span class="nn">flumina.core.ir._</span>
+<div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="k">import</span> <span class="nn">flumina._</span>
+<span class="k">import</span> <span class="nn">flumina.avro4s._</span>
 <span class="k">import</span> <span class="nn">io.confluent.kafka.schemaregistry.client._</span>
 </code></pre>
 </div>

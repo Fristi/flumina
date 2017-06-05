@@ -4,17 +4,17 @@
 
 <p>First things first, we need some imports</p>
 
-<div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="k">import</span> <span class="nn">flumina.akkaimpl._</span>
-<span class="k">import</span> <span class="nn">flumina.core.ir._</span>
+<div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="k">import</span> <span class="nn">monix.reactive.</span><span class="o">{</span><span class="nc">Consumer</span><span class="o">,</span> <span class="nc">Observable</span><span class="o">,</span> <span class="nc">OverflowStrategy</span><span class="o">}</span>
+<span class="k">import</span> <span class="nn">monix.execution.Scheduler.Implicits.global</span>
+<span class="k">import</span> <span class="nn">flumina._</span>
+<span class="k">import</span> <span class="nn">flumina.client._</span>
 <span class="k">import</span> <span class="nn">flumina.monix._</span>
 <span class="k">import</span> <span class="nn">akka.actor._</span>
 <span class="k">import</span> <span class="nn">akka.util._</span>
 <span class="k">import</span> <span class="nn">scala.concurrent.</span><span class="o">{</span><span class="nc">ExecutionContext</span><span class="o">,</span> <span class="nc">Await</span><span class="o">}</span>
 <span class="k">import</span> <span class="nn">scala.concurrent.duration._</span>
-<span class="k">import</span> <span class="nn">monix.reactive.</span><span class="o">{</span><span class="nc">Consumer</span><span class="o">,</span> <span class="nc">Observable</span><span class="o">,</span> <span class="nc">OverflowStrategy</span><span class="o">}</span>
 <span class="k">import</span> <span class="nn">scodec.bits.ByteVector</span>
 <span class="k">import</span> <span class="nn">scodec.codecs.uint32</span>
-<span class="k">import</span> <span class="nn">monix.execution.Scheduler.Implicits.global</span>
 </code></pre>
 </div>
 
@@ -30,7 +30,7 @@
 </code></pre>
 </div>
 
-<p>Now we’ve imported the monix package we access to two new methods <code class="highlighter-rouge">produce</code> and <code class="highlighter-rouge">consume</code>.</p>
+<h2 id="create-a-topic">Create a topic</h2>
 
 <p>First lets setup a topic:</p>
 
@@ -50,10 +50,12 @@
 </code></pre>
 </div>
 
+<p>Now we’ve imported the monix package we access to two new methods <code class="highlighter-rouge">produce</code> and <code class="highlighter-rouge">messages</code>.</p>
+
 <h2 id="produce-to-kafka">Produce to Kafka</h2>
 
 <div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="n">scala</span><span class="o">&gt;</span> <span class="k">implicit</span> <span class="k">val</span> <span class="n">longCodec</span><span class="k">:</span> <span class="kt">KafkaCodec</span><span class="o">[</span><span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="nc">KafkaCodec</span><span class="o">.</span><span class="n">fromValueCodec</span><span class="o">(</span><span class="n">uint32</span><span class="o">)</span>
-<span class="n">longCodec</span><span class="k">:</span> <span class="kt">flumina.core.ir.KafkaCodec</span><span class="o">[</span><span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="n">flumina</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">ir</span><span class="o">.</span><span class="nc">KafkaCodec$$anon$13</span><span class="k">@</span><span class="mi">3572</span><span class="n">b237</span>
+<span class="n">longCodec</span><span class="k">:</span> <span class="kt">flumina.KafkaCodec</span><span class="o">[</span><span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="n">flumina</span><span class="o">.</span><span class="nc">KafkaCodec$$anon$13</span><span class="k">@</span><span class="mi">267</span><span class="n">c3fa2</span>
 
 <span class="n">scala</span><span class="o">&gt;</span> <span class="k">val</span> <span class="n">producer</span> <span class="k">=</span> <span class="n">kafkaClient</span><span class="o">.</span><span class="n">produce</span><span class="o">[</span><span class="kt">Long</span><span class="o">](</span><span class="n">topic</span> <span class="k">=</span> <span class="n">topicName</span><span class="o">,</span> <span class="n">nrPartitions</span> <span class="k">=</span> <span class="mi">10</span><span class="o">)</span>
 <span class="n">producer</span><span class="k">:</span> <span class="kt">monix.reactive.Consumer</span><span class="o">[</span><span class="kt">Long</span>,<span class="kt">Unit</span><span class="o">]</span> <span class="k">=</span> <span class="o">&lt;</span><span class="n">function1</span><span class="o">&gt;</span>
@@ -65,7 +67,7 @@
 <h2 id="consume-from-kafka">Consume from Kafka</h2>
 
 <div class="language-scala highlighter-rouge"><pre class="highlight"><code><span class="n">scala</span><span class="o">&gt;</span> <span class="k">val</span> <span class="n">consumer</span> <span class="k">=</span> <span class="nc">Consumer</span><span class="o">.</span><span class="n">foldLeft</span><span class="o">[</span><span class="kt">Long</span>, <span class="kt">TopicPartitionValue</span><span class="o">[</span><span class="kt">OffsetValue</span><span class="o">[</span><span class="kt">Long</span><span class="o">]]](</span><span class="mi">0</span><span class="n">l</span><span class="o">)((</span><span class="n">acc</span><span class="o">,</span> <span class="k">_</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="n">acc</span> <span class="o">+</span> <span class="mi">1</span><span class="o">)</span>
-<span class="n">consumer</span><span class="k">:</span> <span class="kt">monix.reactive.Consumer.Sync</span><span class="o">[</span><span class="kt">flumina.core.ir.TopicPartitionValue</span><span class="o">[</span><span class="kt">flumina.core.ir.OffsetValue</span><span class="o">[</span><span class="kt">Long</span><span class="o">]]</span>,<span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="o">&lt;</span><span class="n">function1</span><span class="o">&gt;</span>
+<span class="n">consumer</span><span class="k">:</span> <span class="kt">monix.reactive.Consumer.Sync</span><span class="o">[</span><span class="kt">flumina.TopicPartitionValue</span><span class="o">[</span><span class="kt">flumina.OffsetValue</span><span class="o">[</span><span class="kt">Long</span><span class="o">]]</span>,<span class="kt">Long</span><span class="o">]</span> <span class="k">=</span> <span class="o">&lt;</span><span class="n">function1</span><span class="o">&gt;</span>
 
 <span class="n">scala</span><span class="o">&gt;</span> <span class="nc">Await</span><span class="o">.</span><span class="n">result</span><span class="o">(</span><span class="n">kafkaClient</span><span class="o">.</span><span class="n">messages</span><span class="o">[</span><span class="kt">Long</span><span class="o">](</span><span class="n">topicName</span><span class="o">,</span> <span class="nc">ConsumptionStrategy</span><span class="o">.</span><span class="nc">TerminateEndOfStream</span><span class="o">).</span><span class="n">consumeWith</span><span class="o">(</span><span class="n">consumer</span><span class="o">).</span><span class="n">runAsync</span><span class="o">,</span> <span class="mf">30.</span><span class="n">seconds</span><span class="o">)</span>
 <span class="n">res5</span><span class="k">:</span> <span class="kt">Long</span> <span class="o">=</span> <span class="mi">100</span>
