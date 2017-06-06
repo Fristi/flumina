@@ -15,9 +15,7 @@ import scala.util.control.NonFatal
 package object avro4s {
 
   @SuppressWarnings(Array("org.wartremover.warts.Null"))
-  def avroCodec[A](topic: String, schemaRegistry: SchemaRegistryClient)(implicit S: ToSchema[A], E: ToRecord[A], D: FromRecord[A]): KafkaCodec[A] = new KafkaCodec[A] {
-
-    private val id = schemaRegistry.register(topic, S())
+  def avroCodec[A](topic: String, schemaRegistry: SchemaRegistryClient)(implicit ToSchema: ToSchema[A], ToRecord: ToRecord[A], FromRecord: FromRecord[A]): KafkaCodec[A] = new KafkaCodec[A] {
 
     private val encoderFactory = EncoderFactory.get
     private val decoderFactory = DecoderFactory.get
@@ -26,9 +24,9 @@ package object avro4s {
       try {
         val out     = new ByteArrayOutputStream
         val encoder = encoderFactory.binaryEncoder(out, null)
-        val writer  = new GenericDatumWriter[GenericRecord](S.apply())
+        val writer  = new GenericDatumWriter[GenericRecord](ToSchema.apply())
 
-        writer.write(E(v), encoder)
+        writer.write(ToRecord.apply(v), encoder)
         encoder.flush()
         Attempt.successful(BitVector(out.toByteArray))
       } catch {
@@ -42,21 +40,24 @@ package object avro4s {
 
         val decoder = decoderFactory.binaryDecoder(bitVector.toByteArray, null)
 
-        Attempt.successful(D(reader.read(null, decoder)))
+        Attempt.successful(FromRecord.apply(reader.read(null, decoder)))
       } catch {
         case NonFatal(t) => Attempt.failure(Err(t.getMessage))
       }
 
     override def encode(value: A): Attempt[Record] =
       for {
-        bv      <- int16.encode(id)
+        magic_byte  <- ignore(8).encode(())
+        id = schemaRegistry.register(topic, ToSchema.apply())
+        bv      <- int32.encode(id)
         payload <- write(value)
-      } yield Record(ByteVector.empty, (bv ++ payload).toByteVector)
+      } yield Record(ByteVector.empty, (magic_byte ++ bv ++ payload).toByteVector)
 
-    override def decode(value: Record): Attempt[A] =
+    override def decode(record: Record): Attempt[A] =
       for {
-        identifier <- int16.decode(value.value.toBitVector)
-        entity     <- read(identifier.value, identifier.remainder)
+        magic_byte <- ignore(8).decode(record.value.toBitVector)
+        identifier <- int32.decode(magic_byte.remainder)
+        entity     <- read(identifier.value.toInt, identifier.remainder)
       } yield entity
   }
 

@@ -1,0 +1,14 @@
+version: '2'
+services:
+  fast-data-dev:
+    image: landoop/fast-data-dev:cp3.1.2
+    restart: always
+    ports:
+      - "2181:2181"
+      - "3030:3030"
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+      - "9092:9092"
+    environment:
+      - "ADV_HOST=127.0.0.1"
