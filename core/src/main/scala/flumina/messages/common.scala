@@ -144,7 +144,8 @@ object MessageSetCodec {
               GZipCompression.inflate(v) flatMap decodeCompressed(Compression.GZIP)
             case Compression.Snappy =>
               SnappyCompression.inflate(v) flatMap decodeCompressed(Compression.Snappy)
-            case _ => sys.error("Impossible?")
+            case Compression.None =>
+              decodeCompressed(Compression.None)(v)
           }
       }
     }
@@ -177,7 +178,8 @@ object MessageSetCodec {
                 encodeCompressed(cm.messages).flatMap(GZipCompression.deflate)
               case Compression.Snappy =>
                 encodeCompressed(cm.messages).flatMap(SnappyCompression.deflate)
-              case _ => sys.error("Impossible?")
+              case Compression.None =>
+                encodeCompressed(cm.messages)
             }
 
           val (timeFlag, time) = mkTime(cm.timeStamp)

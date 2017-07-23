@@ -8,14 +8,14 @@ import org.apache.avro.generic.{GenericDatumReader, GenericDatumWriter, GenericR
 import org.apache.avro.io.{DecoderFactory, EncoderFactory}
 import scodec.bits.{BitVector, ByteVector}
 import scodec.codecs._
-import scodec.{Attempt, Err}
+import scodec.{Attempt, Codec, DecodeResult, Err, SizeBound}
 
 import scala.util.control.NonFatal
 
 package object avro4s {
 
   @SuppressWarnings(Array("org.wartremover.warts.Null"))
-  def avroCodec[A](topic: String, schemaRegistry: SchemaRegistryClient)(implicit ToSchema: ToSchema[A], ToRecord: ToRecord[A], FromRecord: FromRecord[A]): KafkaCodec[A] = new KafkaCodec[A] {
+  def avroCodec[A](topic: String, schemaRegistry: SchemaRegistryClient)(implicit ToSchema: ToSchema[A], ToRecord: ToRecord[A], FromRecord: FromRecord[A]): Codec[A] = new Codec[A] {
 
     private val encoderFactory = EncoderFactory.get
     private val decoderFactory = DecoderFactory.get
@@ -45,20 +45,22 @@ package object avro4s {
         case NonFatal(t) => Attempt.failure(Err(t.getMessage))
       }
 
-    override def encode(value: A): Attempt[Record] =
+    override def encode(value: A): Attempt[BitVector] =
       for {
-        magic_byte  <- ignore(8).encode(())
+        magic_byte <- ignore(8).encode(())
         id = schemaRegistry.register(topic, ToSchema.apply())
         bv      <- int32.encode(id)
         payload <- write(value)
-      } yield Record(ByteVector.empty, (magic_byte ++ bv ++ payload).toByteVector)
+      } yield magic_byte ++ bv ++ payload
 
-    override def decode(record: Record): Attempt[A] =
+    override def decode(record: BitVector): Attempt[DecodeResult[A]] =
       for {
-        magic_byte <- ignore(8).decode(record.value.toBitVector)
+        magic_byte <- ignore(8).decode(record)
         identifier <- int32.decode(magic_byte.remainder)
-        entity     <- read(identifier.value.toInt, identifier.remainder)
-      } yield entity
+        entity     <- read(identifier.value, identifier.remainder)
+      } yield DecodeResult(entity, BitVector.empty)
+
+    override def sizeBound: SizeBound = SizeBound.unknown
   }
 
 }

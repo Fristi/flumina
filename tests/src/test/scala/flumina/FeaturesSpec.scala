@@ -41,7 +41,7 @@ class FeaturesSpec
   private implicit val timeout: Timeout            = 3.seconds
   private implicit val longCodec: KafkaCodec[Long] = KafkaCodec.fromValueCodec(uint32)
   private implicit val personCodec: KafkaCodec[Person] =
-    avroCodec[Person](personTopic, new MockSchemaRegistryClient())
+    KafkaCodec.fromValueCodec(avroCodec[Person](personTopic, new MockSchemaRegistryClient()))
   private implicit val personParitioner: KafkaPartitioner[Person] =
     KafkaPartitioner.stringPartitioner.contramap[Person](_.name)
 

@@ -39,9 +39,8 @@ package object monix {
         implicit S: Scheduler,
         D: KafkaDecoder[A]): Observable[TopicPartitionValue[OffsetValue[A]]] = {
 
-      def sources(metadata: Metadata): Observable[TopicPartitionValue[OffsetValue[A]]] = {
+      def sources(metadata: Metadata): Observable[TopicPartitionValue[OffsetValue[A]]] =
         Observable.merge(metadata.topics.toSeq.map(tp => new TopicConsumer(kafkaClient, tp.topicPartition, 0l, consumptionStrategy, codecErrorHandler)): _*)
-      }
 
       for {
         metadata <- Observable.fromFuture(kafkaClient.metadata(Set(topic)))

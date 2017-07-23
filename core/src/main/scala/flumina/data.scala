@@ -8,15 +8,17 @@ import cats.{Applicative, Eq, Eval, Functor, Monoid, Traverse}
 import scodec.bits.ByteVector
 import scodec.{Attempt, Codec, Decoder, Encoder, Err}
 
-abstract class Compression(val id: Int)
+sealed abstract class Compression(val id: Int)
 
 object Compression {
   def apply(id: Int): Attempt[Compression] = id match {
+    case 0 => Attempt.successful(None)
     case 1 => Attempt.successful(GZIP)
     case 2 => Attempt.successful(Snappy)
     case _ => Attempt.failure(Err("Compression not recognized"))
   }
 
+  case object None   extends Compression(0)
   case object GZIP   extends Compression(1)
   case object Snappy extends Compression(2)
 }
@@ -244,6 +246,8 @@ object KafkaEncoder {
     override def encode(value: A): Attempt[Record] = f(value)
   }
 
+  implicit def fromCodec[A](implicit C: KafkaCodec[A]): KafkaEncoder[A] = instance(C.encode)
+
   implicit val contravariant: Contravariant[KafkaEncoder] = new Contravariant[KafkaEncoder] {
     override def contramap[A, B](fa: KafkaEncoder[A])(f: (B) => A): KafkaEncoder[B] =
       instance(v => fa.encode(f(v)))
@@ -270,6 +274,8 @@ object KafkaDecoder {
     override def decode(value: Record): Attempt[A] = f(value)
   }
 
+  implicit def fromCodec[A](implicit C: KafkaCodec[A]): KafkaDecoder[A] = instance(C.decode)
+
   implicit val functor: Functor[KafkaDecoder] = new Functor[KafkaDecoder] {
     override def map[A, B](fa: KafkaDecoder[A])(f: (A) => B): KafkaDecoder[B] =
       instance(v => fa.decode(v).map(f))
@@ -284,6 +290,27 @@ trait KafkaCodec[A] extends KafkaEncoder[A] with KafkaDecoder[A] { self =>
 }
 
 object KafkaCodec {
+
+  implicit val identityCodec: KafkaCodec[Record] = new KafkaCodec[Record] {
+    override def encode(value: Record): Attempt[Record] = Attempt.successful(value)
+    override def decode(value: Record): Attempt[Record] = Attempt.successful(value)
+  }
+
+  def fromCodec[K, V](keyCodec: Codec[K], valueCodec: Codec[V]): KafkaCodec[(K, V)] = new KafkaCodec[(K, V)] {
+
+    override def decode(value: Record): Attempt[(K, V)] =
+      for {
+        keyDecoded   <- keyCodec.decodeValue(value.key.toBitVector)
+        valueDecoded <- valueCodec.decodeValue(value.value.toBitVector)
+      } yield keyDecoded -> valueDecoded
+
+    override def encode(value: (K, V)): Attempt[Record] =
+      for {
+        keyEncoded   <- keyCodec.encode(value._1)
+        valueEncoded <- valueCodec.encode(value._2)
+      } yield Record(keyEncoded.toByteVector, valueEncoded.toByteVector)
+  }
+
   def fromValueCodec[A](codec: Codec[A]): KafkaCodec[A] = new KafkaCodec[A] {
     override def encode(value: A): Attempt[Record] =
       codec.encode(value).map(bv => Record(ByteVector.empty, bv.toByteVector))
